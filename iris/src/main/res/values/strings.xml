@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">iris</string>
+    <string name="stop_desc">stop</string>
+    <string name="title_activity_iri">Capture your iris</string>
+</resources>

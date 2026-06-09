@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.iritech.irissample.app-mergeDebugResources-62:/values-port/values-port.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\HAI DANG\\.gradle\\caches\\8.13\\transforms\\8e64993dbed60a2cb8de9a407584cc95\\transformed\\appcompat-1.2.0\\res\\values-port\\values-port.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "55",
+                        "endOffsets": "106"
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <usb-device class="239" subclass="2" vendor-id="0x1f63" product-id="0x840F"/> <!-- IriEnvoy -->
+<!--    <usb-device product-id="393" vendor-id="32769" /> &lt;!&ndash; iM20T &ndash;&gt;-->
+    <usb-device product-id="0x0189" vendor-id="0x8001" /> <!-- iM20T -->
+    <usb-device product-id="0x2CD1" vendor-id="0x1BCF" /> <!-- iM20Q -->
+    <usb-device product-id="0x2D4F" vendor-id="0x1BCF" /> <!-- iC30M -->
+    <usb-device product-id="0x0040" vendor-id="0x8001" /> <!-- IriEgis BK old -->
+    <usb-device product-id="0x0286" vendor-id="0x8001" /> <!-- IriEgis BK - IC30 -->
+    <usb-device product-id="0x018D" vendor-id="0x8001" /> <!-- iM26T -->
+</resources>

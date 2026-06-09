@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">IrisSample IriAegis 26T
+    </string>
+    <string name="title_activity_face_recognition">FaceRecognitionActivity</string>
+</resources>

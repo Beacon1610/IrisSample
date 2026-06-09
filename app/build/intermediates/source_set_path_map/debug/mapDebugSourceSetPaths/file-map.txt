@@ -1,0 +1,69 @@
+com.iritech.irissample.app-jetified-runtime-saveable-release-0 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\003ee21a828b0a468d709cf288c844d8\transformed\jetified-runtime-saveable-release\res
+com.iritech.irissample.app-lifecycle-livedata-core-2.6.1-1 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\043fb9fcf1ea98aa373959c7d06cbdd6\transformed\lifecycle-livedata-core-2.6.1\res
+com.iritech.irissample.app-fragment-1.2.5-2 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\04ff3cf9032a31d3a46bb801b6a46a31\transformed\fragment-1.2.5\res
+com.iritech.irissample.app-jetified-camera-lifecycle-1.2.2-3 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\08ccfe27d304ca23c63d8c7da70da5ed\transformed\jetified-camera-lifecycle-1.2.2\res
+com.iritech.irissample.app-media-1.0.0-4 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\0a88fe43db528d321be2561a4e92b7e6\transformed\media-1.0.0\res
+com.iritech.irissample.app-jetified-play-services-basement-18.0.0-5 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\0a951d166ab2141c2a42c1e25ce33bd3\transformed\jetified-play-services-basement-18.0.0\res
+com.iritech.irissample.app-lifecycle-runtime-2.6.1-6 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\0e4b9504f740066ce989e4e05a9fb5ce\transformed\lifecycle-runtime-2.6.1\res
+com.iritech.irissample.app-core-1.10.0-7 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\0fe9ca5a1f963402857b3a0aa268739a\transformed\core-1.10.0\res
+com.iritech.irissample.app-jetified-savedstate-1.2.1-8 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\1396173c211cfd8c16c23b320a39b822\transformed\jetified-savedstate-1.2.1\res
+com.iritech.irissample.app-jetified-lifecycle-viewmodel-savedstate-2.6.1-9 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\150513987f937f614ef34851f1d37b22\transformed\jetified-lifecycle-viewmodel-savedstate-2.6.1\res
+com.iritech.irissample.app-jetified-activity-1.8.0-10 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\167cc778f5d9668fa7d243be6a51c4cc\transformed\jetified-activity-1.8.0\res
+com.iritech.irissample.app-jetified-customview-poolingcontainer-1.0.0-11 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\1810b8dcd237481bfcaf8d7704dca681\transformed\jetified-customview-poolingcontainer-1.0.0\res
+com.iritech.irissample.app-jetified-ui-graphics-release-12 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\2d97c6bac9282c701ef7f32f22518ce6\transformed\jetified-ui-graphics-release\res
+com.iritech.irissample.app-jetified-ui-test-manifest-1.5.4-13 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\2f78661d061dcc3b8641902c60255240\transformed\jetified-ui-test-manifest-1.5.4\res
+com.iritech.irissample.app-constraintlayout-1.1.3-14 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\304cc2007c43d111436484e6c9a366ce\transformed\constraintlayout-1.1.3\res
+com.iritech.irissample.app-jetified-startup-runtime-1.1.1-15 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\322d6b27b8dff3de0dff8d090c0b8d0a\transformed\jetified-startup-runtime-1.1.1\res
+com.iritech.irissample.app-jetified-camera-view-1.2.2-16 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\3a8e5033fced3111c68796d1083e4398\transformed\jetified-camera-view-1.2.2\res
+com.iritech.irissample.app-jetified-material-release-17 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\49032a17d7fa0a3ddc56261486ac3583\transformed\jetified-material-release\res
+com.iritech.irissample.app-jetified-savedstate-ktx-1.2.1-18 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\512bf56da131753339344d09bff1e6ef\transformed\jetified-savedstate-ktx-1.2.1\res
+com.iritech.irissample.app-jetified-activity-compose-1.8.0-19 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\547a0aa5020743fdc54c7011071029b6\transformed\jetified-activity-compose-1.8.0\res
+com.iritech.irissample.app-transition-1.0.0-20 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\551b1dc43617ef30839fcc341529cf7b\transformed\transition-1.0.0\res
+com.iritech.irissample.app-jetified-core-ktx-1.10.0-21 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\56263cf6eea3791b8d439f6ad521b111\transformed\jetified-core-ktx-1.10.0\res
+com.iritech.irissample.app-jetified-runtime-release-22 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\5ea6ee434978c7d2a288a26f49054852\transformed\jetified-runtime-release\res
+com.iritech.irissample.app-lifecycle-livedata-2.6.1-23 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\632b59dd5013dedb618087011e52a75b\transformed\lifecycle-livedata-2.6.1\res
+com.iritech.irissample.app-jetified-ui-release-24 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\65ac20fe492a56746474885c17b95ffd\transformed\jetified-ui-release\res
+com.iritech.irissample.app-jetified-ui-tooling-release-25 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\69543054b171b61377c1c69c143904d2\transformed\jetified-ui-tooling-release\res
+com.iritech.irissample.app-jetified-camera-camera2-1.2.2-26 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\6eb52f0e03aeef563eff04f5e4d89da9\transformed\jetified-camera-camera2-1.2.2\res
+com.iritech.irissample.app-jetified-foundation-layout-release-27 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\7138281fbcdbea2de57e0db84b5a6f5a\transformed\jetified-foundation-layout-release\res
+com.iritech.irissample.app-jetified-animation-core-release-28 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\782c708cc03d3af1d9edbd4854c996a4\transformed\jetified-animation-core-release\res
+com.iritech.irissample.app-jetified-annotation-experimental-1.3.0-29 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\88f9c30cfe53079bef2f93c21a726c9b\transformed\jetified-annotation-experimental-1.3.0\res
+com.iritech.irissample.app-jetified-profileinstaller-1.3.0-30 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\8a06105735e4414560a385a9fde6d9dc\transformed\jetified-profileinstaller-1.3.0\res
+com.iritech.irissample.app-core-runtime-2.2.0-31 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\8dd9891652664f96484b5aff261f404d\transformed\core-runtime-2.2.0\res
+com.iritech.irissample.app-appcompat-1.2.0-32 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\8e64993dbed60a2cb8de9a407584cc95\transformed\appcompat-1.2.0\res
+com.iritech.irissample.app-jetified-lifecycle-runtime-ktx-2.6.1-33 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\8f57456dae5d7a958216b3de6be2ce56\transformed\jetified-lifecycle-runtime-ktx-2.6.1\res
+com.iritech.irissample.app-coordinatorlayout-1.0.0-34 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\918299c27ae00daf46b692bf78f81271\transformed\coordinatorlayout-1.0.0\res
+com.iritech.irissample.app-jetified-iricapture+-35 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\94864a1de55feb9d2f153484e24d8de1\transformed\jetified-iricapture+\res
+com.iritech.irissample.app-jetified-ui-tooling-preview-release-36 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\97370001cc0fffe46bf33ef83a6152fb\transformed\jetified-ui-tooling-preview-release\res
+com.iritech.irissample.app-jetified-material-icons-core-release-37 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\97be3d4148bcde6c99b04af81999a78b\transformed\jetified-material-icons-core-release\res
+com.iritech.irissample.app-jetified-emoji2-1.4.0-38 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\9832642120dbe1c41413c3c754445e34\transformed\jetified-emoji2-1.4.0\res
+com.iritech.irissample.app-jetified-ui-tooling-data-release-39 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\985a45fe897d9306c560a9bf3f8a0132\transformed\jetified-ui-tooling-data-release\res
+com.iritech.irissample.app-jetified-material3-1.1.2-40 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\a04761a246c11e6d9f154e04d9451683\transformed\jetified-material3-1.1.2\res
+com.iritech.irissample.app-recyclerview-1.0.0-41 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\a92d179603278fcf4709ba7d70cb4287\transformed\recyclerview-1.0.0\res
+com.iritech.irissample.app-jetified-ui-text-release-42 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\afae6183b0f0ff9752d4446b5600297b\transformed\jetified-ui-text-release\res
+com.iritech.irissample.app-jetified-ui-util-release-43 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\b25f9c30cd963b1ba2eb2ef8e4fdc900\transformed\jetified-ui-util-release\res
+com.iritech.irissample.app-jetified-appcompat-resources-1.2.0-44 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\b86d5d0a0d4c07db1db7769a7753e51b\transformed\jetified-appcompat-resources-1.2.0\res
+com.iritech.irissample.app-jetified-camera-core-1.2.2-45 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\ba8b59caf8ed9f9f9b079b5dfe8cf798\transformed\jetified-camera-core-1.2.2\res
+com.iritech.irissample.app-jetified-lifecycle-viewmodel-ktx-2.6.1-46 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\c5ac102e529eda554dc60495f56ca21b\transformed\jetified-lifecycle-viewmodel-ktx-2.6.1\res
+com.iritech.irissample.app-jetified-play-services-gcm-17.0.0-47 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\ccf1435405cef2a0852f5cc42cadd803\transformed\jetified-play-services-gcm-17.0.0\res
+com.iritech.irissample.app-material-1.0.0-48 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\d2c1411b238d5e570bc6150afca7fe35\transformed\material-1.0.0\res
+com.iritech.irissample.app-biometric-1.1.0-49 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\e01a652968e4077a281d8292b3fbfc33\transformed\biometric-1.1.0\res
+com.iritech.irissample.app-jetified-lifecycle-process-2.6.1-50 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\e311ecd0394bc22bab9f152e29d1a2d4\transformed\jetified-lifecycle-process-2.6.1\res
+com.iritech.irissample.app-jetified-animation-release-51 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\e75c6cf70aad4083ee43fa28de5f860b\transformed\jetified-animation-release\res
+com.iritech.irissample.app-jetified-ui-unit-release-52 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\ea79c0c608c40c9cc9c5deb33c6de47c\transformed\jetified-ui-unit-release\res
+com.iritech.irissample.app-jetified-play-services-base-18.0.1-53 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\f65c9cfd34c57f987e5ba7b214e9e252\transformed\jetified-play-services-base-18.0.1\res
+com.iritech.irissample.app-jetified-ui-geometry-release-54 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\f66ef2c707ebc0dcf6d9516cab5ba672\transformed\jetified-ui-geometry-release\res
+com.iritech.irissample.app-jetified-material-ripple-release-55 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\f71cb88f2a73467c6480db0765efdea9\transformed\jetified-material-ripple-release\res
+com.iritech.irissample.app-jetified-activity-ktx-1.8.0-56 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\fc12a3c67d0554c4008af0e838310e05\transformed\jetified-activity-ktx-1.8.0\res
+com.iritech.irissample.app-jetified-foundation-release-57 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\fca00d9d73fe0774e4e472b6af6bba97\transformed\jetified-foundation-release\res
+com.iritech.irissample.app-lifecycle-viewmodel-2.6.1-58 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\fdf916963b2c421b7a83abb41abc1f2d\transformed\lifecycle-viewmodel-2.6.1\res
+com.iritech.irissample.app-cardview-1.0.0-59 C:\Users\HAI DANG\.gradle\caches\8.13\transforms\fea43c24709afdc36fc244f4fd9ba234\transformed\cardview-1.0.0\res
+com.iritech.irissample.app-pngs-60 D:\IrisSample-IriAegis-26T\app\build\generated\res\pngs\debug
+com.iritech.irissample.app-resValues-61 D:\IrisSample-IriAegis-26T\app\build\generated\res\resValues\debug
+com.iritech.irissample.app-updated_navigation_xml-62 D:\IrisSample-IriAegis-26T\app\build\generated\updated_navigation_xml\debug
+com.iritech.irissample.app-mergeDebugResources-63 D:\IrisSample-IriAegis-26T\app\build\intermediates\incremental\debug\mergeDebugResources\merged.dir
+com.iritech.irissample.app-mergeDebugResources-64 D:\IrisSample-IriAegis-26T\app\build\intermediates\incremental\debug\mergeDebugResources\stripped.dir
+com.iritech.irissample.app-debug-65 D:\IrisSample-IriAegis-26T\app\build\intermediates\merged_res\debug\mergeDebugResources
+com.iritech.irissample.app-debug-66 D:\IrisSample-IriAegis-26T\app\src\debug\res
+com.iritech.irissample.app-main-67 D:\IrisSample-IriAegis-26T\app\src\main\res
+com.iritech.irissample.app-debug-68 D:\IrisSample-IriAegis-26T\iris\build\intermediates\packaged_res\debug\packageDebugResources

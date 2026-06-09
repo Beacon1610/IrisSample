@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="400dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="15dp"
+        android:orientation="vertical"
+        android:padding="50dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
+            app:layout_constraintLeft_toLeftOf="parent"
+            app:layout_constraintRight_toRightOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            android:textSize="20sp"
+            android:text="Please enter your license key"
+            android:layout_marginBottom="10dp"
+            />
+
+        <EditText
+            android:id="@+id/edit_customer_id"
+            android:layout_width="300dp"
+            android:layout_height="wrap_content"
+            android:gravity="fill"
+            android:layout_marginTop="15dp"
+            android:hint="Customer ID"
+            android:paddingLeft="15dp"
+            />
+
+        <EditText
+            android:id="@+id/edit_license_id"
+            android:layout_width="300dp"
+            android:layout_height="wrap_content"
+            android:gravity="fill"
+            android:layout_marginTop="5dp"
+            android:hint="License ID"
+            android:paddingLeft="15dp"
+            />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            app:layout_constraintLeft_toLeftOf="parent"
+            app:layout_constraintRight_toRightOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            android:layout_marginTop="15dp"
+            android:orientation="horizontal">
+            <Button
+                android:id="@+id/bt_lic_ok"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:text="OK"
+                />
+
+            <Button
+                android:id="@+id/bt_lic_cancel"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="Cancel"
+                />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
