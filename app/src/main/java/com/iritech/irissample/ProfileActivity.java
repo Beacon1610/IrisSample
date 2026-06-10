@@ -27,6 +27,8 @@ import android.widget.LinearLayout; // Layout chứa các phần tử
 import android.widget.Spinner; // Dropdown chọn giới tính
 import android.widget.TextView; // Hiển thị text và thông báo lỗi
 import android.widget.Toast; // Hiển thị thông báo ngắn
+import com.google.gson.Gson;
+import com.iritech.irissample.face.FaceEmbeddingExtractor;
 
 // Import từ AndroidX
 import androidx.appcompat.app.AppCompatActivity; // Base class cho activity
@@ -49,12 +51,18 @@ import java.util.Locale; // Định dạng ngôn ngữ cho SimpleDateFormat
 public class ProfileActivity extends AppCompatActivity {
 
     private DatabaseHelper dbHelper;
+    private FaceEmbeddingExtractor faceEmbeddingExtractor;
+    private Gson gson = new Gson();
+    private boolean forceFaceEnrollment = false;
+    private boolean returnToMainAfterSave = false;
+    private TextView textViewFaceStatus;
+    private String pendingFaceEmbeddingJson;
     private PasswordValidationHelper validationHelper;
     private String currentUserEmail; // Email của user đang đăng nhập
     private String currentUserRole; // Vai trò của user (SUPER_ADMIN / ADMIN)
     private boolean isEditMode = false; // Chế độ hiện tại: false = xem, true = sửa
     private boolean isFirstLogin = false; // Đánh dấu nếu đang là lần đầu login
-    
+
     private ImageView imageViewAvatar;
     private EditText editTextEmail;
     private EditText editTextPassword;
@@ -79,10 +87,10 @@ public class ProfileActivity extends AppCompatActivity {
     private LinearLayout layoutPasswordSection;
     private LinearLayout layoutActionButtons;
     private LinearLayout layoutAvatarButtons;
-    
+
     private String photoPath;
     private String currentPhotoPath;
-    
+
     private static final int REQUEST_CAMERA_PERMISSION = 100;
     private static final int REQUEST_STORAGE_PERMISSION = 101;
     private static final int REQUEST_CAMERA_CAPTURE = 102;
@@ -105,25 +113,38 @@ public class ProfileActivity extends AppCompatActivity {
         CaptureActivity.setUSBActivity(this);
 
         validationHelper = new PasswordValidationHelper(dbHelper);
+        try {
+            faceEmbeddingExtractor = new FaceEmbeddingExtractor(this);
+        } catch (Exception e) {
+            Toast.makeText(this, "Không tải được Face ID model: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
         currentUserEmail = getIntent().getStringExtra("USER_EMAIL");
         isFirstLogin = getIntent().getBooleanExtra("IS_FIRST_LOGIN", false);
+        forceFaceEnrollment = getIntent().getBooleanExtra("FORCE_FACE_ENROLLMENT", false);
+        returnToMainAfterSave = getIntent().getBooleanExtra("RETURN_TO_MAIN_AFTER_SAVE", false);
 
         if (TextUtils.isEmpty(currentUserEmail)) {
             Toast.makeText(this, "Không tìm thấy thông tin người dùng", Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
-        
+
         // Nếu là lần đầu login, tự động chuyển sang chế độ edit
         if (isFirstLogin) {
             isEditMode = true;
         }
-
         initializeViews();
         setupGenderSpinner();
         loadUserData();
-        setViewMode();
         setupListeners();
+
+        if (isFirstLogin || forceFaceEnrollment) {
+            setEditMode();
+            buttonEdit.setVisibility(View.GONE);
+            buttonCancel.setVisibility(View.GONE);
+        } else {
+            setViewMode();
+        }
     }
 
     private void initializeViews() {
@@ -148,6 +169,7 @@ public class ProfileActivity extends AppCompatActivity {
         buttonGallery = findViewById(R.id.buttonGallery);
         buttonEnrollIris = findViewById(R.id.buttonEnrollIris);
         textViewIrisStatus = findViewById(R.id.textViewIrisStatus);
+        textViewFaceStatus = findViewById(R.id.textViewFaceStatus);
         layoutPasswordSection = findViewById(R.id.layoutPasswordSection);
         layoutActionButtons = findViewById(R.id.layoutActionButtons);
         layoutAvatarButtons = findViewById(R.id.layoutAvatarButtons);
@@ -167,16 +189,16 @@ public class ProfileActivity extends AppCompatActivity {
             editTextFullName.setText(cursor.getString(cursor.getColumnIndexOrThrow("full_name")));
             editTextDob.setText(cursor.getString(cursor.getColumnIndexOrThrow("date_of_birth")));
             editTextPhone.setText(cursor.getString(cursor.getColumnIndexOrThrow("phone")));
-            
+
             String gender = cursor.getString(cursor.getColumnIndexOrThrow("gender"));
             setSpinnerValue(spinnerGender, gender);
-            
+
             editTextDescription.setText(cursor.getString(cursor.getColumnIndexOrThrow("description")));
-            
+
             String role = cursor.getString(cursor.getColumnIndexOrThrow("role"));
             currentUserRole = role; // Lưu role để kiểm tra sau này
             textViewRole.setText("Vai trò: " + (role.equals("SUPER_ADMIN") ? "Super Admin" : "Admin"));
-            
+
             // Hiển thị mã số giảng viên (chỉ cho Admin thường, không hiển thị cho Super Admin)
             if (role.equals("SUPER_ADMIN")) {
                 textViewEmployeeCode.setVisibility(View.GONE);
@@ -194,7 +216,7 @@ public class ProfileActivity extends AppCompatActivity {
                     textViewEmployeeCode.setVisibility(View.GONE);
                 }
             }
-            
+
             photoPath = cursor.getString(cursor.getColumnIndexOrThrow("photo_path"));
             if (!TextUtils.isEmpty(photoPath)) {
                 File file = new File(photoPath);
@@ -211,10 +233,19 @@ public class ProfileActivity extends AppCompatActivity {
                 String name = cursor.getString(cursor.getColumnIndexOrThrow("full_name"));
                 imageViewAvatar.setImageBitmap(InitialsAvatarHelper.generateAvatar(name, 192));
             }
-            
+
             cursor.close();
         }
-        
+        boolean hasFace = dbHelper.hasAdminFace(currentUserEmail);
+        if (textViewFaceStatus != null) {
+            if (hasFace) {
+                textViewFaceStatus.setText("Đã đăng ký Face ID");
+                textViewFaceStatus.setTextColor(0xFF4CAF50);
+            } else {
+                textViewFaceStatus.setText("Chưa đăng ký Face ID");
+                textViewFaceStatus.setTextColor(0xFF999999);
+            }
+        }
         // Load trạng thái iris enrollment
         boolean hasIris = dbHelper.hasAdminEnrolledIris(currentUserEmail);
         if (hasIris) {
@@ -251,8 +282,13 @@ public class ProfileActivity extends AppCompatActivity {
         buttonCancel.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                if (isFirstLogin || forceFaceEnrollment) {
+                    Toast.makeText(ProfileActivity.this, "Vui lòng hoàn tất cập nhật Avatar/Face ID", Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 loadUserData(); // Tải lại dữ liệu gốc
                 setViewMode();
+
             }
         });
 
@@ -311,13 +347,13 @@ public class ProfileActivity extends AppCompatActivity {
     // Chuyển sang chế độ xem: tắt các field, ẩn phần password/PIN/avatar buttons
     private void setViewMode() {
         isEditMode = false;
-        
+
         // Hiển thị nút "Chỉnh sửa", ẩn nút "Lưu"/"Hủy"
         buttonEdit.setVisibility(View.VISIBLE);
         layoutActionButtons.setVisibility(View.GONE);
         layoutPasswordSection.setVisibility(View.GONE);
         layoutAvatarButtons.setVisibility(View.GONE);
-        
+
         // Tắt tất cả các field (chỉ cho phép xem)
         editTextEmail.setEnabled(false); // Email luôn disabled trong chế độ xem
         editTextFullName.setEnabled(false);
@@ -325,10 +361,10 @@ public class ProfileActivity extends AppCompatActivity {
         editTextPhone.setEnabled(false);
         spinnerGender.setEnabled(false);
         editTextDescription.setEnabled(false);
-        
+
         // Xóa thông báo lỗi
         textViewError.setVisibility(View.GONE);
-        
+
         // Xóa các field password (bỏ PIN)
         editTextPassword.setText("");
         editTextConfirmPassword.setText("");
@@ -337,33 +373,33 @@ public class ProfileActivity extends AppCompatActivity {
     // Chuyển sang chế độ sửa: bật các field, hiển thị phần password/PIN/avatar buttons
     private void setEditMode() {
         isEditMode = true;
-        
+
         // Ẩn nút "Chỉnh sửa", hiển thị nút "Lưu"/"Hủy"
         buttonEdit.setVisibility(View.GONE);
         layoutActionButtons.setVisibility(View.VISIBLE);
         layoutPasswordSection.setVisibility(View.VISIBLE);
         layoutAvatarButtons.setVisibility(View.VISIBLE);
-        
+
         // Bật tất cả các field (cho phép chỉnh sửa)
         // Cả Super Admin và Admin đều có thể đổi email của chính mình
         editTextEmail.setEnabled(true);
-        
+
         editTextFullName.setEnabled(true);
         editTextDob.setEnabled(true);
         editTextPhone.setEnabled(true);
         spinnerGender.setEnabled(true);
         editTextDescription.setEnabled(true);
-        
+
         // Xóa thông báo lỗi
         textViewError.setVisibility(View.GONE);
     }
 
     // Kiểm tra quyền truy cập camera
     private boolean checkCameraPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, 
-                new String[]{Manifest.permission.CAMERA}, 
+            ActivityCompat.requestPermissions(this,
+                new String[]{Manifest.permission.CAMERA},
                 REQUEST_CAMERA_PERMISSION);
             return false;
         }
@@ -426,11 +462,11 @@ public class ProfileActivity extends AppCompatActivity {
             String imageFileName = "JPEG_" + timeStamp + ".jpg";
             File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
             File file = new File(storageDir, imageFileName);
-            
+
             FileOutputStream fos = new FileOutputStream(file);
             bitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos);
             fos.close();
-            
+
             return file.getAbsolutePath();
         } catch (IOException e) {
             e.printStackTrace();
@@ -464,7 +500,40 @@ public class ProfileActivity extends AppCompatActivity {
             }
         );
     }
+    private void extractFaceEmbedding(Bitmap bitmap) {
+        if (faceEmbeddingExtractor == null || bitmap == null) {
+            return;
+        }
 
+        pendingFaceEmbeddingJson = null;
+
+        if (textViewFaceStatus != null) {
+            textViewFaceStatus.setText("Đang tạo Face ID...");
+            textViewFaceStatus.setTextColor(0xFF999999);
+        }
+
+        faceEmbeddingExtractor.extractEmbeddingFromBitmap(bitmap, new FaceEmbeddingExtractor.OnEmbeddingExtractedCallback() {
+            @Override
+            public void onSuccess(float[] embedding, Bitmap faceBitmap) {
+                pendingFaceEmbeddingJson = gson.toJson(embedding);
+
+                if (textViewFaceStatus != null) {
+                    textViewFaceStatus.setText("Face ID đã sẵn sàng");
+                    textViewFaceStatus.setTextColor(0xFF4CAF50);
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                pendingFaceEmbeddingJson = null;
+
+                if (textViewFaceStatus != null) {
+                    textViewFaceStatus.setText("Không tạo được Face ID: " + error);
+                    textViewFaceStatus.setTextColor(0xFFF44336);
+                }
+            }
+        });
+    }
     private void attemptSave() {
         textViewError.setVisibility(View.GONE);
 
@@ -477,7 +546,7 @@ public class ProfileActivity extends AppCompatActivity {
         String phone = editTextPhone.getText().toString().trim();
         String gender = spinnerGender.getSelectedItem().toString();
         String description = editTextDescription.getText().toString().trim();
-        
+
         // Kiểm tra email nếu có thay đổi (cả Super Admin và Admin đều có thể đổi email của chính mình)
         if (!email.equals(currentUserEmail)) {
             // Kiểm tra email hợp lệ
@@ -485,7 +554,7 @@ public class ProfileActivity extends AppCompatActivity {
                 showError("Email không hợp lệ");
                 return;
             }
-            
+
             // Kiểm tra email mới đã tồn tại chưa
             if (dbHelper.isEmailExists(email)) {
                 showError("Email này đã được sử dụng");
@@ -503,7 +572,7 @@ public class ProfileActivity extends AppCompatActivity {
                 showError("Password và xác nhận không khớp");
                 return;
             }
-            
+
             // Kiểm tra password mới không được trùng với password cũ
             if (validationHelper.isSameAsOldPassword(currentUserEmail, password)) {
                 showError("Mật khẩu mới không được giống với mật khẩu cũ");
@@ -512,12 +581,20 @@ public class ProfileActivity extends AppCompatActivity {
         }
 
         // Bỏ validation PIN
-        
+
         // Validate required fields
         if (TextUtils.isEmpty(fullName)) {
             showError("Vui lòng nhập họ và tên");
             return;
         }
+        //cap nhat avatar neu lan dau dang nhap
+        if ((isFirstLogin || forceFaceEnrollment)
+                && TextUtils.isEmpty(pendingFaceEmbeddingJson)
+                && !dbHelper.hasAdminFace(currentUserEmail)) {
+            showError("Vui lòng chụp hoặc chọn avatar có khuôn mặt rõ để đăng ký Face ID");
+            return;
+        }
+
 
         // Update admin info (bỏ tham số PIN)
         boolean result = dbHelper.updateAdmin(
@@ -530,40 +607,53 @@ public class ProfileActivity extends AppCompatActivity {
                 photoPath,
                 description
         );
-        
+
         // Nếu đổi email, cần cập nhật email trong database
         boolean emailChanged = !email.equals(currentUserEmail);
         if (emailChanged && result) {
             result = dbHelper.updateAdminEmail(currentUserEmail, email);
         }
+        String emailToSave = emailChanged ? email : currentUserEmail;
 
+        if (result && !TextUtils.isEmpty(pendingFaceEmbeddingJson)) {
+            result = dbHelper.updateAdminFaceId(emailToSave, photoPath, pendingFaceEmbeddingJson);
+        }
         if (result) {
             // Nếu là lần đầu login, đánh dấu hoàn thành sau khi save thành công
             // Quan trọng: Phải dùng email MỚI nếu đã đổi email
             if (isFirstLogin) {
                 String emailToMark = emailChanged ? email : currentUserEmail;
-                dbHelper.markFirstLoginComplete(emailToMark);
+                dbHelper.markFirstLoginComplete(emailToSave);
                 Toast.makeText(this, "Đã hoàn thành thiết lập tài khoản!", Toast.LENGTH_LONG).show();
                 isFirstLogin = false; // Reset flag
             } else {
                 Toast.makeText(this, "Cập nhật thành công", Toast.LENGTH_SHORT).show();
             }
-            
+
             // Nếu đổi email, cập nhật session và gửi email thông báo
             if (emailChanged) {
                 // Gửi email thông báo đến email cũ
-                EmailService.sendAccountUpdatedEmail(currentUserEmail, fullName, 
+                EmailService.sendAccountUpdatedEmail(currentUserEmail, fullName,
                     "- Email đã được thay đổi từ: " + currentUserEmail + " \u2192 " + email + "\n");
-                    
+
                 // Gửi email xác nhận đến email mới
                 EmailService.sendRegistrationSuccessEmail(email, fullName, "Admin");
-                
+
                 // Cập nhật email hiện tại
                 currentUserEmail = email;
             }
-            
+
             // Clear password fields and switch to view mode
             loadUserData();
+            if (returnToMainAfterSave) {
+                Intent intent = new Intent(ProfileActivity.this, MainActivity.class);
+                intent.putExtra("USER_EMAIL", emailToSave);
+                intent.putExtra("USER_ROLE", currentUserRole);
+                intent.putExtra("USER_NAME", fullName);
+                startActivity(intent);
+                finish();
+                return;
+            }
             setViewMode();
         } else {
             Toast.makeText(this, "Cập nhật thất bại", Toast.LENGTH_SHORT).show();
@@ -614,7 +704,7 @@ public class ProfileActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        
+
         if (resultCode == Activity.RESULT_OK) {
             if (requestCode == REQUEST_CAMERA_CAPTURE) {
                 // Camera capture result
@@ -624,6 +714,7 @@ public class ProfileActivity extends AppCompatActivity {
                         Bitmap bitmap = BitmapFactory.decodeFile(currentPhotoPath);
                         imageViewAvatar.setImageBitmap(bitmap);
                         photoPath = currentPhotoPath;
+                        extractFaceEmbedding(bitmap);
                     }
                 }
             } else if (requestCode == REQUEST_GALLERY_PICK) {
@@ -635,6 +726,7 @@ public class ProfileActivity extends AppCompatActivity {
                         imageViewAvatar.setImageBitmap(bitmap);
                         // Save to app storage
                         photoPath = saveBitmapToFile(bitmap);
+                        extractFaceEmbedding(bitmap);
                     } catch (IOException e) {
                         e.printStackTrace();
                         Toast.makeText(this, "Không thể tải ảnh", Toast.LENGTH_SHORT).show();
@@ -645,14 +737,14 @@ public class ProfileActivity extends AppCompatActivity {
                 if (data != null) {
                     int resultCodeExt = data.getIntExtra(Constants.EXTRA_RESULT_CODE, -1);
                     String resultMsg = data.getStringExtra(Constants.EXTRA_RESULT_MSG);
-                    
+
                     // Log chi tiết để debug
                     android.util.Log.d("ProfileActivity", "Iris enroll result: code=" + resultCodeExt + ", msg=" + resultMsg);
-                    
+
                     if (resultCodeExt == 0) {
                         // Ghi danh thành công - cập nhật database
                         boolean success = dbHelper.updateAdminIrisEnrollment(currentUserEmail);
-                        
+
                         if (success) {
                             textViewIrisStatus.setText("Đã ghi danh mống mắt");
                             textViewIrisStatus.setTextColor(0xFF4CAF50); // Green
@@ -673,7 +765,7 @@ public class ProfileActivity extends AppCompatActivity {
             }
         }
     }
-    
+
     /**
      * Kiểm tra quyền WRITE_EXTERNAL_STORAGE và CAMERA trước khi khởi chạy CaptureActivity.
      * Thứ tự: Ghi (WRITE) trước → Chụp (CAMERA) sau.
@@ -704,16 +796,16 @@ public class ProfileActivity extends AppCompatActivity {
     private void enrollIrisForCurrentUser() {
         // Convert email thành format an toàn cho SDK (SDK không chấp nhận @, .)
         String safeUserId = currentUserEmail.replace("@", "_at_").replace(".", "_");
-        
+
         // Kiểm tra đã ghi danh chưa - nếu rồi thì unenroll trước
         boolean hasIris = dbHelper.hasAdminEnrolledIris(currentUserEmail);
-        
+
         if (hasIris) {
             // Đã ghi danh rồi - xóa template cũ trước (unenroll)
             Intent unenrollIntent = new Intent(getApplicationContext(), CaptureActivity.class);
             unenrollIntent.setAction(Constants.ACTION_UNENROLL);
             unenrollIntent.putExtra(Constants.EXTRA_USER_ID, safeUserId);
-            
+
             // Hiển thị dialog xác nhận
             new android.app.AlertDialog.Builder(this)
                 .setTitle("Ghi danh lại mống mắt")
@@ -735,6 +827,14 @@ public class ProfileActivity extends AppCompatActivity {
             intent.putExtra(Constants.EXTRA_USER_ID, safeUserId);
             // Kiểm tra quyền trước (WRITE trước, CAMERA sau)
             checkIrisPermissionsAndStart(intent);
+        }
+    }
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+
+        if (faceEmbeddingExtractor != null) {
+            faceEmbeddingExtractor.close();
         }
     }
 }

@@ -64,6 +64,27 @@ public class FaceMatcher {
             cursor.close();
         }
     }
+    public FaceMatchResult verifyAdmin(float[] currentEmbedding, String adminEmail) {
+        Cursor cursor = dbHelper.getAdminFaceVectorByEmail(adminEmail);
+
+        try {
+            if (cursor == null || !cursor.moveToFirst()) return null;
+
+            String adminId = cursor.getString(0);
+            String adminName = cursor.getString(1);
+            String embeddingJson = cursor.getString(2);
+
+            if (embeddingJson == null || embeddingJson.trim().isEmpty()) return null;
+
+            float[] savedEmbedding = gson.fromJson(embeddingJson, float[].class);
+            if (savedEmbedding == null || savedEmbedding.length != currentEmbedding.length) return null;
+
+            float distance = euclideanDistance(currentEmbedding, savedEmbedding);
+            return new FaceMatchResult(adminId, adminName, distance);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+    }
     public FaceMatchResult findBestMatch(float[] currentEmbedding, String subjectId) {
         Cursor cursor = dbHelper.getStudentFaceVectorsBySubject(subjectId);
 

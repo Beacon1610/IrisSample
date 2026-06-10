@@ -1,31 +1,56 @@
 package com.iritech.irissample;
 
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity; // Cần thư viện này
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ExperimentalGetImage;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.ImageFormat;
+import android.graphics.Matrix;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
+import android.media.Image;
 import android.os.Build;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.os.Environment;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.View; // Thêm import này
 import android.widget.Button; // Thêm import này
 import android.widget.EditText; // Thêm import này
+import android.widget.ImageButton;
 import android.widget.TextView; // Thêm import này
 import android.content.Intent; // Thêm import này cho việc chuyển Activity
 import android.widget.Toast; // Thêm import này nếu dùng Toast
-import com.iritech.irissample.R;
+
+import com.google.common.util.concurrent.ListenableFuture;
 import com.iritech.iris.CaptureActivity;
 import com.iritech.iris.Constants;
+import com.iritech.irissample.face.FaceEmbeddingExtractor;
+import com.iritech.irissample.face.FaceMatchResult;
+import com.iritech.irissample.face.FaceMatcher;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class LoginActivity extends AppCompatActivity {
     private EditText editTextEmail;
@@ -142,22 +167,52 @@ public class LoginActivity extends AppCompatActivity {
 
 
     private void attemptLogin() {
+
         String email = editTextEmail.getText().toString().trim();
         String password = editTextPassword.getText().toString().trim();
 
         // THAY DOI: Xac thuc bang DatabaseHelper thay vi hard-code
         Cursor cursor = dbHelper.authenticateUser(email, password);
-        
         if (cursor != null && cursor.moveToFirst()) {
             // Dang nhap thanh cong
             String role = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_ADMIN_ROLE));
             String fullName = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.COL_ADMIN_FULL_NAME));
             cursor.close();
-            
-            Toast.makeText(this, "Đăng nhập thành công! Xin chào " + fullName, Toast.LENGTH_SHORT).show();
 
-            // THAY DOI: Truyen role va email sang MainActivity
-            Intent intent = new Intent(LoginActivity.this, MainActivity.class);
+            boolean isFirstLogin = dbHelper.isFirstLogin(email);
+//
+//            Toast.makeText(this, "Đăng nhập thành công! Xin chào " + fullName, Toast.LENGTH_SHORT).show();
+//
+//            // THAY DOI: Truyen role va email sang MainActivity
+//            Intent intent = new Intent(LoginActivity.this, MainActivity.class);
+//            intent.putExtra("USER_EMAIL", email);
+//            intent.putExtra("USER_ROLE", role);
+//            intent.putExtra("USER_NAME", fullName);
+//            startActivity(intent);
+//            finish();
+            if (isFirstLogin) {
+                Intent intent = new Intent(LoginActivity.this, MainActivity.class);
+                intent.putExtra("USER_EMAIL", email);
+                intent.putExtra("USER_ROLE", role);
+                intent.putExtra("USER_NAME", fullName);
+                startActivity(intent);
+                finish();
+                return;
+            }
+            boolean hasFace = dbHelper.hasAdminFace(email);
+            if (!hasFace) {
+                Intent intent = new Intent(LoginActivity.this, ProfileActivity.class);
+                intent.putExtra("USER_EMAIL", email);
+                intent.putExtra("USER_ROLE", role);
+                intent.putExtra("USER_NAME", fullName);
+                intent.putExtra("IS_FIRST_LOGIN", false);
+                intent.putExtra("FORCE_FACE_ENROLLMENT", true);
+                intent.putExtra("RETURN_TO_MAIN_AFTER_SAVE", true);
+                startActivity(intent);
+                finish();
+                return;
+            }
+            Intent intent = new Intent(LoginActivity.this, AdminFaceVerifyActivity.class);
             intent.putExtra("USER_EMAIL", email);
             intent.putExtra("USER_ROLE", role);
             intent.putExtra("USER_NAME", fullName);
@@ -672,5 +727,4 @@ public class LoginActivity extends AppCompatActivity {
                     REQUEST_ALL_PERMISSIONS);
         }
     }
-
 }

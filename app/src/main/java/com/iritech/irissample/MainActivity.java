@@ -259,7 +259,8 @@ public class MainActivity extends AppCompatActivity {
             }
             
             // Nếu Super Admin đã có avatar → tự động mark hoàn thành, không hiện dialog
-            if ("SUPER_ADMIN".equals(currentUserRole) && hasAvatar) {
+            boolean hasFace = dbHelper.hasAdminFace(currentUserEmail);
+            if ("SUPER_ADMIN".equals(currentUserRole) && hasAvatar && hasFace) {
                 dbHelper.markFirstLoginComplete(currentUserEmail);
                 return;
             }
@@ -294,16 +295,18 @@ public class MainActivity extends AppCompatActivity {
                         // Chuyển đến ProfileActivity để cập nhật
                         Intent intent = new Intent(MainActivity.this, ProfileActivity.class);
                         intent.putExtra("USER_EMAIL", currentUserEmail);
-                        intent.putExtra("IS_FIRST_LOGIN", true); // Đánh dấu là lần đầu
+                        intent.putExtra("IS_FIRST_LOGIN", true);
+                        intent.putExtra("FORCE_FACE_ENROLLMENT", true);
+                        intent.putExtra("RETURN_TO_MAIN_AFTER_SAVE", true);// Đánh dấu là lần đầu
                         startActivity(intent);
                     }
                 })
-                .setNegativeButton("\u2715", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        dialog.dismiss();
-                    }
-                })
+//                .setNegativeButton("\u2715", new DialogInterface.OnClickListener() {
+//                    @Override
+//                    public void onClick(DialogInterface dialog, int which) {
+//                        dialog.dismiss();
+//                    }
+//                })
                 .setIcon(android.R.drawable.ic_dialog_alert)
                 .show();
         }

@@ -360,7 +360,16 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
         </LinearLayout>
-
+        <TextView
+            android:id="@+id/textViewFaceStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="8dp"
+            android:text="Chưa đăng ký Face ID"
+            android:textSize="14sp"
+            android:textColor="@color/colorTextSecondary" />
         <!-- Mống mắt -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"

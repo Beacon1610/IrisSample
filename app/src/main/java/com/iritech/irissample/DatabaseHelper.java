@@ -11,7 +11,7 @@ import java.security.NoSuchAlgorithmException;
 public class DatabaseHelper extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "attendance.db";
-    private static final int DATABASE_VERSION = 20; // Version 19: Xóa eye_photo_path, đơn giản hóa schema
+    private static final int DATABASE_VERSION = 21; // Version 19: Xóa eye_photo_path, đơn giản hóa schema
 
     // Bảng ADMIN
     public static final String TABLE_ADMIN = "admin";
@@ -29,8 +29,10 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     public static final String COL_ADMIN_RESET_TOKEN = "reset_token"; // Token reset password
     public static final String COL_ADMIN_EXPIRE_AT = "expire_at"; // Thời gian hết hạn token (milliseconds)
     public static final String COL_ADMIN_IS_FIRST_LOGIN = "is_first_login"; // Cờ đánh dấu lần đăng nhập đầu (cần cập nhật avatar/password)
-    public static final String COL_ADMIN_HAS_IRIS = "has_iris"; // Đánh dấu đã ghi danh mống mắt chưa (0 = chưa, 1 = rồi)
+    public static final String COL_ADMIN_HAS_IRIS = "has_iris";// Đánh dấu đã ghi danh mống mắt chưa (0 = chưa, 1 = rồi)
 
+    public static final String COL_ADMIN_FACE_EMBEDDING = "admin_face_embedding";
+    public static final String COL_ADMIN_HAS_FACE = "has_face";
     // Bảng SUBJECTS
     public static final String TABLE_SUBJECTS = "subjects";
     public static final String COL_SUBJECT_ID = "subject_id";
@@ -97,7 +99,9 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                 COL_ADMIN_CODE + " TEXT, " +
                 COL_ADMIN_RESET_TOKEN + " TEXT, " +
                 COL_ADMIN_EXPIRE_AT + " INTEGER, " +
-                COL_ADMIN_IS_FIRST_LOGIN + " INTEGER DEFAULT 1, " + // 1 = first login, 0 = đã cập nhật
+                COL_ADMIN_IS_FIRST_LOGIN + " INTEGER DEFAULT 1, " +// 1 = first login, 0 = đã cập nhật
+                COL_ADMIN_FACE_EMBEDDING + " TEXT, " +
+                COL_ADMIN_HAS_FACE + " INTEGER DEFAULT 0, " +
                 COL_ADMIN_HAS_IRIS + " INTEGER DEFAULT 0)"; // 0 = chưa ghi danh, 1 = đã ghi danh
 
         // TẠO BẢNG SUBJECTS - Có instructor_id, subject_status, created_at
@@ -324,6 +328,48 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
         android.util.Log.d("DatabaseHelper", "Password verification result: " + verified);
         return verified;
+    }
+
+    public boolean updateAdminFaceId(String email, String photoPath, String embeddingJson) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues values = new ContentValues();
+        values.put(COL_ADMIN_PHOTO, photoPath);
+        values.put(COL_ADMIN_FACE_EMBEDDING, embeddingJson);
+        values.put(COL_ADMIN_HAS_FACE, 1);
+
+        int rowsAffected = db.update(TABLE_ADMIN, values, COL_ADMIN_EMAIL + " = ?", new String[]{email});
+        return rowsAffected > 0;
+    }
+
+    public boolean hasAdminFace(String email) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor = db.rawQuery(
+                "SELECT " + COL_ADMIN_HAS_FACE + ", " + COL_ADMIN_FACE_EMBEDDING +
+                        " FROM " + TABLE_ADMIN +
+                        " WHERE " + COL_ADMIN_EMAIL + " = ?",
+                new String[]{email}
+        );
+
+        try {
+            if (!cursor.moveToFirst()) return false;
+            String embedding = cursor.getString(1);
+            return cursor.getInt(0) == 1 && embedding != null && !embedding.trim().isEmpty();
+        } finally {
+            cursor.close();
+        }
+    }
+
+    public Cursor getAdminFaceVectorByEmail(String email) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        return db.rawQuery(
+                "SELECT " + COL_ADMIN_ID + ", " + COL_ADMIN_FULL_NAME + ", " + COL_ADMIN_FACE_EMBEDDING +
+                        " FROM " + TABLE_ADMIN +
+                        " WHERE " + COL_ADMIN_EMAIL + " = ?" +
+                        " AND " + COL_ADMIN_HAS_FACE + " = 1" +
+                        " AND " + COL_ADMIN_FACE_EMBEDDING + " IS NOT NULL" +
+                        " AND " + COL_ADMIN_FACE_EMBEDDING + " != ''",
+                new String[]{email}
+        );
     }
 
     // Thêm Super Admin (chỉ dùng lần đầu khởi tạo hệ thống)
