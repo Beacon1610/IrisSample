@@ -10,9 +10,11 @@ import java.security.NoSuchAlgorithmException;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
 
-    private static final String DATABASE_NAME = "attendance.db";
-    private static final int DATABASE_VERSION = 21; // Version 19: Xóa eye_photo_path, đơn giản hóa schema
-
+   public static final String DATABASE_NAME = "attendance.db";
+    public static final int DATABASE_VERSION = 21; // Version 19: Xóa eye_photo_path, đơn giản hóa schema
+    public static int getCurrentDatabaseVersion() {
+        return DATABASE_VERSION;
+    }
     // Bảng ADMIN
     public static final String TABLE_ADMIN = "admin";
     public static final String COL_ADMIN_ID = "admin_id";
@@ -83,9 +85,11 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     }
 
     @Override
-    public void onCreate(SQLiteDatabase db) {
-        // TẠO BẢNG ADMIN - Có phân quyền và thông tin đầy đủ
-        String CREATE_ADMIN_TABLE = "CREATE TABLE " + TABLE_ADMIN + " (" +
+    public void onCreate(SQLiteDatabase db){
+        createMissingTables(db);
+    }
+    private  static  void createMissingTables(SQLiteDatabase db) {
+        String createAdminTable = "CREATE TABLE IF NOT EXISTS " + TABLE_ADMIN + " (" +
                 COL_ADMIN_ID + " TEXT PRIMARY KEY, " +
                 COL_ADMIN_EMAIL + " TEXT UNIQUE NOT NULL, " +
                 COL_ADMIN_PASSWORD + " TEXT NOT NULL, " +
@@ -99,13 +103,12 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                 COL_ADMIN_CODE + " TEXT, " +
                 COL_ADMIN_RESET_TOKEN + " TEXT, " +
                 COL_ADMIN_EXPIRE_AT + " INTEGER, " +
-                COL_ADMIN_IS_FIRST_LOGIN + " INTEGER DEFAULT 1, " +// 1 = first login, 0 = đã cập nhật
+                COL_ADMIN_IS_FIRST_LOGIN + " INTEGER DEFAULT 1, " +
                 COL_ADMIN_FACE_EMBEDDING + " TEXT, " +
                 COL_ADMIN_HAS_FACE + " INTEGER DEFAULT 0, " +
-                COL_ADMIN_HAS_IRIS + " INTEGER DEFAULT 0)"; // 0 = chưa ghi danh, 1 = đã ghi danh
+                COL_ADMIN_HAS_IRIS + " INTEGER DEFAULT 0)";
 
-        // TẠO BẢNG SUBJECTS - Có instructor_id, subject_status, created_at
-        String CREATE_SUBJECTS_TABLE = "CREATE TABLE " + TABLE_SUBJECTS + " (" +
+        String createSubjectsTable = "CREATE TABLE IF NOT EXISTS " + TABLE_SUBJECTS + " (" +
                 COL_SUBJECT_ID + " TEXT PRIMARY KEY, " +
                 COL_SUBJECT_NAME + " TEXT NOT NULL, " +
                 COL_TIME_SLOT + " TEXT, " +
@@ -114,59 +117,130 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                 COL_SUBJECT_STATUS + " TEXT NOT NULL DEFAULT 'UNASSIGNED', " +
                 COL_SUBJECT_CREATED_AT + " TEXT, " +
                 "FOREIGN KEY(" + COL_SUBJECT_CREATED_BY + ") REFERENCES " +
-                        TABLE_ADMIN + "(" + COL_ADMIN_ID + ") ON DELETE SET NULL, " +
+                TABLE_ADMIN + "(" + COL_ADMIN_ID + ") ON DELETE SET NULL, " +
                 "FOREIGN KEY(" + COL_SUBJECT_INSTRUCTOR_ID + ") REFERENCES " +
-                        TABLE_ADMIN + "(" + COL_ADMIN_ID + ") ON DELETE SET NULL);";  
+                TABLE_ADMIN + "(" + COL_ADMIN_ID + ") ON DELETE SET NULL)";
 
-        // TẠO BẢNG STUDENTS 
-        String CREATE_STUDENTS_TABLE = "CREATE TABLE " + TABLE_STUDENTS + " (" +
+        String createStudentsTable = "CREATE TABLE IF NOT EXISTS " + TABLE_STUDENTS + " (" +
                 COL_STUDENT_ID + " TEXT PRIMARY KEY, " +
                 COL_FULL_NAME + " TEXT, " +
                 COL_EMAIL + " TEXT, " +
                 COL_PHONE + " TEXT, " +
-                COL_PASSWORD + " TEXT," +
-                COL_FACE_VECTOR + " TEXT," +
-                COL_PHOTO_PATH + " TEXT);"; // Giản lược, chỉ giữ thông tin cơ bản
+                COL_PASSWORD + " TEXT, " +
+                COL_FACE_VECTOR + " TEXT, " +
+                COL_PHOTO_PATH + " TEXT)";
 
-
-
-        // TẠO BẢNG ENROLLMENTS
-        String CREATE_ENROLLMENTS_TABLE = "CREATE TABLE " + TABLE_ENROLLMENTS + " (" +
+        String createEnrollmentsTable = "CREATE TABLE IF NOT EXISTS " + TABLE_ENROLLMENTS + " (" +
                 COL_STUDENT_ID + " TEXT, " +
                 COL_SUBJECT_ID + " TEXT, " +
                 COL_ENROLLMENT_STATUS + " TEXT, " +
                 "PRIMARY KEY (" + COL_STUDENT_ID + ", " + COL_SUBJECT_ID + "), " +
-                "FOREIGN KEY(" + COL_STUDENT_ID + ") REFERENCES " + TABLE_STUDENTS + "(" + COL_STUDENT_ID + "), " +
-                "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " + TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + "));";
-        
-        // TẠO BẢNG CHECKIN_HISTORY - Đơn giản hóa, chỉ lưu thông tin cơ bản
-        String CREATE_CHECKIN_HISTORY_TABLE = "CREATE TABLE " + TABLE_CHECKIN_HISTORY + " (" +
-                COL_CHECKIN_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                COL_STUDENT_ID + " TEXT, " +
-                COL_SUBJECT_ID + " TEXT, " +
-                COL_CHECKIN_TIME + " TEXT, " +
-                COL_CHECKIN_DATE + " TEXT, " +
-                "FOREIGN KEY(" + COL_STUDENT_ID + ") REFERENCES " + TABLE_STUDENTS + "(" + COL_STUDENT_ID + "), " +
-                "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " + TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + "));";
-        
-        // TẠO BẢNG EMAIL_RECIPIENTS - Danh sách email nhận báo cáo điểm danh (per-subject)
-        String CREATE_EMAIL_RECIPIENTS_TABLE = "CREATE TABLE " + TABLE_EMAIL_RECIPIENTS + " (" +
-                COL_EMAIL_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                COL_SUBJECT_ID + " TEXT NOT NULL, " +
-                COL_EMAIL_ADDRESS + " TEXT NOT NULL, " +
-                COL_RECIPIENT_NAME + " TEXT, " +
-                COL_ADDED_DATE + " TEXT, " +
-                "UNIQUE(" + COL_SUBJECT_ID + ", " + COL_EMAIL_ADDRESS + "), " +
-                "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " + TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + ") ON DELETE CASCADE);";
+                "FOREIGN KEY(" + COL_STUDENT_ID + ") REFERENCES " +
+                TABLE_STUDENTS + "(" + COL_STUDENT_ID + "), " +
+                "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " +
+                TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + "))";
 
-        db.execSQL(CREATE_ADMIN_TABLE);
-        db.execSQL(CREATE_SUBJECTS_TABLE);
-        db.execSQL(CREATE_STUDENTS_TABLE);
-        db.execSQL(CREATE_ENROLLMENTS_TABLE);
-        db.execSQL(CREATE_CHECKIN_HISTORY_TABLE);
-        db.execSQL(CREATE_EMAIL_RECIPIENTS_TABLE);
+        String createCheckinHistoryTable =
+                "CREATE TABLE IF NOT EXISTS " + TABLE_CHECKIN_HISTORY + " (" +
+                        COL_CHECKIN_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        COL_STUDENT_ID + " TEXT, " +
+                        COL_SUBJECT_ID + " TEXT, " +
+                        COL_CHECKIN_TIME + " TEXT, " +
+                        COL_CHECKIN_DATE + " TEXT, " +
+                        "FOREIGN KEY(" + COL_STUDENT_ID + ") REFERENCES " +
+                        TABLE_STUDENTS + "(" + COL_STUDENT_ID + "), " +
+                        "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " +
+                        TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + "))";
+
+        String createEmailRecipientsTable =
+                "CREATE TABLE IF NOT EXISTS " + TABLE_EMAIL_RECIPIENTS + " (" +
+                        COL_EMAIL_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        COL_SUBJECT_ID + " TEXT NOT NULL, " +
+                        COL_EMAIL_ADDRESS + " TEXT NOT NULL, " +
+                        COL_RECIPIENT_NAME + " TEXT, " +
+                        COL_ADDED_DATE + " TEXT, " +
+                        "UNIQUE(" + COL_SUBJECT_ID + ", " + COL_EMAIL_ADDRESS + "), " +
+                        "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " +
+                        TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + ") ON DELETE CASCADE)";
+
+        db.execSQL(createAdminTable);
+        db.execSQL(createSubjectsTable);
+        db.execSQL(createStudentsTable);
+        db.execSQL(createEnrollmentsTable);
+        db.execSQL(createCheckinHistoryTable);
+        db.execSQL(createEmailRecipientsTable);
+    }
+    private  static void addMissingColumnsForVersion21(SQLiteDatabase db) {
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_DOB, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_PHONE, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_GENDER, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_PHOTO, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_DESC, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_ROLE,
+                "TEXT NOT NULL DEFAULT 'ADMIN'");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_CODE, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_RESET_TOKEN, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_EXPIRE_AT, "INTEGER");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_IS_FIRST_LOGIN,
+                "INTEGER DEFAULT 1");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_FACE_EMBEDDING, "TEXT");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_HAS_FACE,
+                "INTEGER DEFAULT 0");
+        addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_HAS_IRIS,
+                "INTEGER DEFAULT 0");
+
+        addColumnIfMissing(db, TABLE_SUBJECTS, COL_TIME_SLOT, "TEXT");
+        addColumnIfMissing(db, TABLE_SUBJECTS, COL_SUBJECT_CREATED_BY, "TEXT");
+        addColumnIfMissing(db, TABLE_SUBJECTS, COL_SUBJECT_INSTRUCTOR_ID, "TEXT");
+        addColumnIfMissing(db, TABLE_SUBJECTS, COL_SUBJECT_STATUS,
+                "TEXT NOT NULL DEFAULT 'UNASSIGNED'");
+        addColumnIfMissing(db, TABLE_SUBJECTS, COL_SUBJECT_CREATED_AT, "TEXT");
+
+        addColumnIfMissing(db, TABLE_STUDENTS, COL_PASSWORD, "TEXT");
+        addColumnIfMissing(db, TABLE_STUDENTS, COL_FACE_VECTOR, "TEXT");
+        addColumnIfMissing(db, TABLE_STUDENTS, COL_PHOTO_PATH, "TEXT");
+
+        addColumnIfMissing(db, TABLE_ENROLLMENTS,
+                COL_ENROLLMENT_STATUS, "TEXT");
+
+        addColumnIfMissing(db, TABLE_CHECKIN_HISTORY,
+                COL_CHECKIN_DATE, "TEXT");
     }
 
+    private  static void addColumnIfMissing(
+            SQLiteDatabase db,
+            String tableName,
+            String columnName,
+            String columnDefinition
+    ) {
+        if (!columnExists(db, tableName, columnName)) {
+            db.execSQL(
+                    "ALTER TABLE " + tableName +
+                            " ADD COLUMN " + columnName + " " + columnDefinition
+            );
+        }
+    }
+
+    private  static boolean columnExists(
+            SQLiteDatabase db,
+            String tableName,
+            String columnName
+    ) {
+        try (Cursor cursor = db.rawQuery(
+                "PRAGMA table_info(" + tableName + ")", null)) {
+
+            int nameIndex = cursor.getColumnIndex("name");
+
+            while (cursor.moveToNext()) {
+                if (nameIndex >= 0 &&
+                        columnName.equalsIgnoreCase(cursor.getString(nameIndex))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
     @Override
     public void onOpen(SQLiteDatabase db) {
         super.onOpen(db);
@@ -175,17 +249,54 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
+    /**
+     * Migrate một database độc lập, ví dụ database vừa giải nén
+     * trong thư mục staging trước khi restore.
+     */
+    public static void migrateToCurrentSchema(SQLiteDatabase database) {
+        if (database == null || !database.isOpen()) {
+            throw new IllegalArgumentException("Database is null or closed");
+        }
+
+        if (database.isReadOnly()) {
+            throw new IllegalStateException(
+                    "Cannot migrate a read-only database"
+            );
+        }
+
+        int sourceVersion = database.getVersion();
+
+        if (sourceVersion > DATABASE_VERSION) {
+            throw new IllegalStateException(
+                    "Database version " + sourceVersion +
+                            " is newer than supported version " +
+                            DATABASE_VERSION
+            );
+        }
+
+        database.beginTransaction();
+
+        try {
+            createMissingTables(database);
+            addMissingColumnsForVersion21(database);
+
+            // Chỉ đặt version sau khi toàn bộ migration thành công.
+            database.setVersion(DATABASE_VERSION);
+            database.setTransactionSuccessful();
+
+        } finally {
+            database.endTransaction();
+        }
+    }
+
     @Override
-    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Giai đoạn dev: drop tất cả bảng rồi tạo lại
-        // Drop bảng con trước, bảng cha sau (tránh lỗi foreign key)
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_EMAIL_RECIPIENTS);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_CHECKIN_HISTORY);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_ENROLLMENTS);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_STUDENTS);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_SUBJECTS);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_ADMIN);
-        onCreate(db);
+    public void onUpgrade(
+            SQLiteDatabase db,
+            int oldVersion,
+            int newVersion
+    ) {
+        createMissingTables(db);
+        addMissingColumnsForVersion21(db);
     }
 
     /**

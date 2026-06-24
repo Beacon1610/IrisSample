@@ -27,7 +27,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Sao lưu và phục hồi"
+                android:text="Xuất và phục hồi dữ liệu"
                 android:textSize="24sp"
                 android:textStyle="bold"
                 android:textColor="@android:color/white" />
@@ -35,7 +35,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Quản lý bản sao lưu dữ liệu hệ thống"
+                android:text="Xuất backup mã hóa hoặc phục hồi backup cũ"
                 android:textSize="14sp"
                 android:textColor="#B3FFFFFF"
                 android:layout_marginTop="4dp" />
@@ -71,7 +71,7 @@
                     android:id="@+id/textViewStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Sẵn sàng"
+                    android:text="Sẵn sàng xuất file backup"
                     android:textSize="14sp"
                     android:textColor="@color/colorTextSecondary" />
 
@@ -113,12 +113,19 @@
                     android:textStyle="bold"
                     android:textColor="@color/colorPrimaryDark"
                     android:layout_marginBottom="16dp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="Export và Import dùng Android Storage Access Framework. Bạn có thể chọn file .iribackup mới hoặc backup .enc legacy từ Documents, Downloads, USB và dịch vụ lưu trữ hỗ trợ."
+                    android:textColor="@color/colorTextSecondary"
+                    android:textSize="13sp" />
 
                 <Button
                     android:id="@+id/btnBackup"
                     android:layout_width="match_parent"
                     android:layout_height="50dp"
-                    android:text="Tạo bản sao lưu"
+                    android:text="Xuất file backup (.iribackup)"
                     android:textSize="15sp"
                     android:textAllCaps="false"
                     android:textColor="@android:color/white"
@@ -129,7 +136,7 @@
                     android:id="@+id/btnRestore"
                     android:layout_width="match_parent"
                     android:layout_height="50dp"
-                    android:text="Phục hồi dữ liệu"
+                    android:text="Nhập / phục hồi file backup"
                     android:textSize="15sp"
                     android:textAllCaps="false"
                     android:textColor="@android:color/white"
@@ -140,7 +147,7 @@
                     android:id="@+id/btnViewBackups"
                     android:layout_width="match_parent"
                     android:layout_height="50dp"
-                    android:text="Xem danh sách bản sao lưu"
+                    android:text="Xem backup cũ trên thiết bị"
                     android:textSize="15sp"
                     android:textAllCaps="false"
                     android:textColor="@color/colorPrimaryDark"
@@ -151,7 +158,7 @@
                     android:id="@+id/btnDeleteBackups"
                     android:layout_width="match_parent"
                     android:layout_height="50dp"
-                    android:text="Xoá các bản sao lưu"
+                    android:text="Xóa các backup cũ"
                     android:textSize="15sp"
                     android:textAllCaps="false"
                     android:textColor="@android:color/white"

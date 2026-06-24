@@ -4,6 +4,9 @@ package com.iritech.irissample;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity; // Cần thư viện này
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ExperimentalGetImage;
@@ -22,6 +25,8 @@ import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.media.Image;
+import android.app.ProgressDialog;
+import android.net.Uri;
 import android.os.Build;
 
 import android.Manifest;
@@ -29,6 +34,7 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.os.Environment;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.View; // Thêm import này
 import android.widget.Button; // Thêm import này
 import android.widget.EditText; // Thêm import này
@@ -48,6 +54,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -60,12 +67,14 @@ public class LoginActivity extends AppCompatActivity {
     private Button buttonRegister;
     private TextView textViewError;
     private TextView textViewForgotPassword;
+    private ActivityResultLauncher<String[]> openFreshBackupLauncher;
+    private BackupImportManager backupImportManager;
+    private boolean firstRunDialogVisible;
     
     // THAY DOI: Them DatabaseHelper de kiem tra va xac thuc
     private DatabaseHelper dbHelper;
     
     private static final int REQUEST_CODE_IDENTIFY_LOGIN = 3001;
-    private static final int REQUEST_CODE_STORAGE_PERMISSION = 100;
     private static final int REQUEST_IRIS_PERMISSIONS = 102;
     private static final int REQUEST_IRIS_SDK_PERMISSION = 103;
     private static final int REQUEST_ALL_PERMISSIONS = 104; // Request tất cả permissions quan trọng
@@ -82,6 +91,16 @@ public class LoginActivity extends AppCompatActivity {
         
         // THAY DOI: Khoi tao DatabaseHelper
         dbHelper = new DatabaseHelper(this);
+        backupImportManager = new BackupImportManager(this);
+        registerFreshInstallRestoreLauncher();
+
+        boolean superAdminExists = dbHelper.isSuperAdminExists();
+        android.util.Log.d("LoginActivity", "Super Admin exists: " + superAdminExists);
+
+        if (!superAdminExists) {
+            showFirstRunDialog();
+            return;
+        }
 
         // QUAN TRONG: Thiet lap USB Activity de SDK co the mo sensor phan cung
         CaptureActivity.setUSBActivity(this);
@@ -94,35 +113,6 @@ public class LoginActivity extends AppCompatActivity {
         // Yêu cầu quyền SDK mống mắt ngay khi khởi động (fire-and-forget, giống MainActivity.loadConfigs)
         if (ContextCompat.checkSelfPermission(this, IRIS_SDK_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{IRIS_SDK_PERMISSION}, REQUEST_IRIS_SDK_PERMISSION);
-        }
-        
-        // Bỏ auto-redirect đến RegisterAdminActivity
-        // Super Admin phải tự tạo nếu chưa có (thông qua màn hình đặc biệt)
-        boolean superAdminExists = dbHelper.isSuperAdminExists();
-        android.util.Log.d("LoginActivity", "Super Admin exists: " + superAdminExists);
-        
-        if (!superAdminExists) {
-            // Kiểm tra quyền storage trước
-            if (!checkStoragePermission()) {
-                // requestCriticalPermissions() đã request READ_EXTERNAL_STORAGE rồi
-                // Chờ onRequestPermissionsResult(REQUEST_ALL_PERMISSIONS) xử lý tiếp
-                android.util.Log.d("LoginActivity", "Storage permission not granted, waiting for REQUEST_ALL_PERMISSIONS result...");
-                return;
-            }
-            
-            // Kiểm tra backup trước - nếu có backup thì ưu tiên restore
-            if (checkForBackupOnStartup()) {
-                // Tìm thấy backup và đã hiện dialog → Không redirect đến RegisterAdminActivity
-                // User sẽ quyết định restore hay bỏ qua
-                return;
-            }
-            
-            // Không có backup → Chuyển đến màn hình tạo Super Admin đầu tiên
-            android.util.Log.d("LoginActivity", "No backup found, redirecting to RegisterAdminActivity");
-            Intent intent = new Intent(LoginActivity.this, RegisterAdminActivity.class);
-            startActivity(intent);
-            finish();
-            return;
         }
         
         editTextEmail = findViewById(R.id.editTextEmail);
@@ -393,60 +383,156 @@ public class LoginActivity extends AppCompatActivity {
         return null;
     }
     
-    /**
-     * Kiểm tra backup khi app khởi động
-     * Nếu database trống và có backup → Hiện dialog restore
-     * 
-     * @return true nếu tìm thấy backup và hiện dialog, false nếu không có backup
-     */
-    private boolean checkForBackupOnStartup() {
-        android.util.Log.d("LoginActivity", "checkForBackupOnStartup() called");
-        BackupRestoreHelper backupHelper = new BackupRestoreHelper(this);
-        
-        // Chỉ check khi database trống (chưa có Super Admin)
-        if (!dbHelper.isSuperAdminExists()) {
-            android.util.Log.d("LoginActivity", "Database is empty, checking for backup files...");
-            java.io.File latestBackup = backupHelper.findLatestBackup();
-            
-            if (latestBackup != null) {
-                android.util.Log.d("LoginActivity", "Found backup: " + latestBackup.getAbsolutePath());
-                // Tìm thấy backup → Hiện dialog cho phép restore
-                showRestoreBackupDialog(latestBackup, backupHelper);
-                return true;
-            } else {
-                android.util.Log.d("LoginActivity", "No backup file found");
-            }
-        } else {
-            android.util.Log.d("LoginActivity", "Database not empty, skipping backup check");
-        }
-        
-        return false;
+    private void registerFreshInstallRestoreLauncher() {
+        openFreshBackupLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(),
+                sourceUri -> {
+                    if (sourceUri == null) {
+                        showFirstRunDialog();
+                        return;
+                    }
+                    showFreshRestorePassphraseDialog(sourceUri);
+                }
+        );
     }
-    
-    /**
-     * Kiểm tra quyền READ_EXTERNAL_STORAGE
-     */
-    private boolean checkStoragePermission() {
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-//            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-//                    == PackageManager.PERMISSION_GRANTED;
-//        }
-//        return true; // Android < 6.0 không cần runtime permission
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-            return true;
+
+    private void showFirstRunDialog() {
+        if (isFinishing()
+                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())
+                || firstRunDialogVisible
+                || dbHelper.isSuperAdminExists()) {
+            return;
         }
 
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                == PackageManager.PERMISSION_GRANTED;
+        firstRunDialogVisible = true;
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("No system data found")
+                .setMessage("You can restore a previous backup or create a new Super Admin account.")
+                .setPositiveButton("Restore Backup", (ignored, which) -> {
+                    firstRunDialogVisible = false;
+                    launchFreshBackupPicker();
+                })
+                .setNegativeButton("Create New Super Admin", (ignored, which) -> {
+                    firstRunDialogVisible = false;
+                    startActivity(new Intent(LoginActivity.this, RegisterAdminActivity.class));
+                    finish();
+                })
+                .setCancelable(false)
+                .create();
+        dialog.setOnDismissListener(ignored -> firstRunDialogVisible = false);
+        dialog.show();
     }
-    
-    /**
-     * Request quyền READ_EXTERNAL_STORAGE
-     */
-    private void requestStoragePermission() {
-        ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                REQUEST_CODE_STORAGE_PERMISSION);
+
+    private void launchFreshBackupPicker() {
+        openFreshBackupLauncher.launch(new String[]{
+                "application/vnd.iritech.iribackup",
+                "application/octet-stream",
+                "*/*"
+        });
+    }
+
+    private void showFreshRestorePassphraseDialog(Uri sourceUri) {
+        EditText input = new EditText(this);
+        input.setInputType(
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
+        input.setHint("Mật khẩu file backup");
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Restore from Backup")
+                .setMessage("Nhập mật khẩu riêng đã dùng khi tạo file backup:")
+                .setView(input)
+                .setPositiveButton("Restore", null)
+                .setNegativeButton("Back", (ignored, which) -> showFirstRunDialog())
+                .create();
+
+        dialog.setOnCancelListener(ignored -> showFirstRunDialog());
+        dialog.setOnShowListener(ignored ->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                    char[] passphrase = input.getText().toString().toCharArray();
+                    if (passphrase.length == 0) {
+                        input.setError("Vui lòng nhập mật khẩu backup");
+                        return;
+                    }
+
+                    input.setText("");
+                    dialog.setOnCancelListener(null);
+                    dialog.dismiss();
+                    performFreshInstallRestore(sourceUri, passphrase);
+                })
+        );
+        dialog.show();
+    }
+
+    private void performFreshInstallRestore(Uri sourceUri, char[] passphrase) {
+        ProgressDialog progressDialog = new ProgressDialog(this);
+        progressDialog.setMessage("Đang kiểm tra và phục hồi dữ liệu...");
+        progressDialog.setCancelable(false);
+        progressDialog.show();
+
+        // Release LoginActivity's SQLite connection before BackupImportManager
+        // checkpoints, creates a safety backup and replaces the live database.
+        dbHelper.close();
+
+        new Thread(() -> {
+            BackupImportManager.ImportResult result;
+            try {
+                result = backupImportManager.importBackup(sourceUri, passphrase);
+            } finally {
+                Arrays.fill(passphrase, '\0');
+            }
+
+            runOnUiThread(() -> {
+                if (isFinishing()
+                        || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
+                    return;
+                }
+                progressDialog.dismiss();
+
+                if (!result.isSuccess()) {
+                    showFreshRestoreFailureDialog(sourceUri, result.getMessage());
+                    return;
+                }
+
+                StringBuilder message = new StringBuilder("Dữ liệu đã được phục hồi an toàn.");
+                if (!result.getWarnings().isEmpty()) {
+                    message.append("\n\nCảnh báo:");
+                    for (String warning : result.getWarnings()) {
+                        message.append("\n- ").append(warning);
+                    }
+                }
+                message.append("\n\nỨng dụng sẽ quay lại màn hình đăng nhập.");
+
+                new AlertDialog.Builder(this)
+                        .setTitle("Restore successful")
+                        .setMessage(message.toString())
+                        .setCancelable(false)
+                        .setPositiveButton("Continue", (ignored, which) -> restartAfterFreshRestore())
+                        .show();
+            });
+        }).start();
+    }
+
+    private void showFreshRestoreFailureDialog(Uri sourceUri, String errorMessage) {
+        String message = errorMessage == null || errorMessage.trim().isEmpty()
+                ? "Sai mật khẩu hoặc file backup đã bị hỏng/bị thay đổi."
+                : errorMessage;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Restore failed")
+                .setMessage(message)
+                .setCancelable(false)
+                .setPositiveButton("Try Again", (ignored, which) ->
+                        showFreshRestorePassphraseDialog(sourceUri))
+                .setNegativeButton("Back", (ignored, which) -> showFirstRunDialog())
+                .show();
+    }
+
+    private void restartAfterFreshRestore() {
+        Intent intent = new Intent(this, LoginActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+        finishAffinity();
     }
     
     @Override
@@ -466,26 +552,6 @@ public class LoginActivity extends AppCompatActivity {
             }
             android.util.Log.d("LoginActivity", "Critical permissions: " + granted + "/" + grantResults.length + " granted");
 
-            // Xử lý backup/register flow nếu chưa có Super Admin
-            if (!dbHelper.isSuperAdminExists()) {
-                if (checkStoragePermission()) {
-                    android.util.Log.d("LoginActivity", "Storage permission granted via REQUEST_ALL_PERMISSIONS, checking backup...");
-                    if (checkForBackupOnStartup()) {
-                        return;
-                    }
-                    // Không có backup → Redirect đến RegisterAdminActivity
-                    android.util.Log.d("LoginActivity", "No backup found, redirecting to RegisterAdminActivity");
-                    Intent intent = new Intent(LoginActivity.this, RegisterAdminActivity.class);
-                    startActivity(intent);
-                    finish();
-                } else {
-                    android.util.Log.w("LoginActivity", "Storage permission denied via REQUEST_ALL_PERMISSIONS");
-                    Toast.makeText(this, "Không có quyền truy cập storage. Không thể kiểm tra backup.", Toast.LENGTH_LONG).show();
-                    Intent intent = new Intent(LoginActivity.this, RegisterAdminActivity.class);
-                    startActivity(intent);
-                    finish();
-                }
-            }
             return;
         }
 
@@ -507,153 +573,6 @@ public class LoginActivity extends AppCompatActivity {
             }
             return;
         }
-        
-        if (requestCode == REQUEST_CODE_STORAGE_PERMISSION) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                android.util.Log.d("LoginActivity", "Storage permission granted, checking backup...");
-                // Permission granted, check backup again
-                if (!dbHelper.isSuperAdminExists()) {
-                    if (checkForBackupOnStartup()) {
-                        return;
-                    }
-                    // Không có backup → Redirect đến RegisterAdminActivity
-                    android.util.Log.d("LoginActivity", "No backup found, redirecting to RegisterAdminActivity");
-                    Intent intent = new Intent(LoginActivity.this, RegisterAdminActivity.class);
-                    startActivity(intent);
-                    finish();
-                }
-            } else {
-                android.util.Log.w("LoginActivity", "Storage permission denied");
-                // Permission denied, proceed to RegisterAdminActivity
-                Toast.makeText(this, "Không có quyền truy cập storage. Không thể kiểm tra backup.", Toast.LENGTH_LONG).show();
-                Intent intent = new Intent(LoginActivity.this, RegisterAdminActivity.class);
-                startActivity(intent);
-                finish();
-            }
-        }
-    }
-    
-    /**
-     * Hiển thị dialog cho phép restore backup
-     */
-    private void showRestoreBackupDialog(final java.io.File backupFile, final BackupRestoreHelper backupHelper) {
-        BackupRestoreHelper.BackupInfo info = backupHelper.getBackupInfo(backupFile);
-        
-        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-        builder.setTitle("Phát hiện dữ liệu cũ");
-        builder.setMessage("Tìm thấy file backup:\n\n" +
-                          "Tên: " + info.fileName + "\n" +
-                          "Kích thước: " + info.getFormattedSize() + "\n" +
-                          "Thời gian: " + info.getFormattedDate() + "\n\n" +
-                          "Bạn có muốn khôi phục dữ liệu này không?");
-        builder.setCancelable(false);
-        
-        builder.setPositiveButton("Khôi phục", (dialog, which) -> {
-            // Yêu cầu nhập password để restore
-            showRestorePasswordDialog(backupFile, backupHelper);
-        });
-        
-        builder.setNegativeButton("Bỏ qua", (dialog, which) -> {
-            // Tiếp tục tạo Super Admin mới
-            dialog.dismiss();
-            // Chuyển đến RegisterAdminActivity
-            Intent intent = new Intent(LoginActivity.this, RegisterAdminActivity.class);
-            startActivity(intent);
-            finish();
-        });
-        
-        builder.show();
-    }
-    
-    /**
-     * Hiển thị dialog nhập password để restore
-     */
-    private void showRestorePasswordDialog(final java.io.File backupFile, final BackupRestoreHelper backupHelper) {
-        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-        builder.setTitle("Nhập mật khẩu");
-        builder.setMessage("Nhập mật khẩu Super Admin đã dùng để mã hóa file backup:");
-        
-        final android.widget.EditText input = new android.widget.EditText(this);
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        input.setHint("Mật khẩu");
-        builder.setView(input);
-        
-        builder.setPositiveButton("OK", (dialog, which) -> {
-            String password = input.getText().toString().trim();
-            
-            if (password.isEmpty()) {
-                Toast.makeText(this, "Vui lòng nhập mật khẩu", Toast.LENGTH_SHORT).show();
-                showRestorePasswordDialog(backupFile, backupHelper);
-                return;
-            }
-            
-            // Thực hiện restore
-            performRestoreOnStartup(backupFile, password, backupHelper);
-        });
-        
-        builder.setNegativeButton("Hủy", (dialog, which) -> {
-            // Bỏ qua restore, tiếp tục tạo Super Admin mới
-            dialog.dismiss();
-        });
-        
-        builder.show();
-    }
-    
-    /**
-     * Thực hiện restore backup khi startup
-     */
-    private void performRestoreOnStartup(final java.io.File backupFile, final String password,
-                                        final BackupRestoreHelper backupHelper) {
-        android.app.ProgressDialog progressDialog = new android.app.ProgressDialog(this);
-        progressDialog.setMessage("Đang khôi phục dữ liệu...");
-        progressDialog.setCancelable(false);
-        progressDialog.show();
-        
-        // Chạy restore trong background thread
-        new Thread(() -> {
-            boolean success = backupHelper.restoreDatabase(backupFile, password);
-            
-            runOnUiThread(() -> {
-                progressDialog.dismiss();
-                
-                if (success) {
-                    new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("Khôi phục thành công!")
-                        .setMessage("Dữ liệu đã được khôi phục.\n\n" +
-                                   "App sẽ khởi động lại để áp dụng thay đổi.")
-                        .setCancelable(false)
-                        .setPositiveButton("Khởi động lại", (dialog, which) -> {
-                            // Restart app
-                            restartApp();
-                        })
-                        .show();
-                } else {
-                    new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("Khôi phục thất bại")
-                        .setMessage("Không thể khôi phục dữ liệu.\n\n" +
-                                   "Nguyên nhân có thể:\n" +
-                                   "- Sai mật khẩu\n" +
-                                   "- File backup bị hỏng")
-                        .setPositiveButton("Thử lại", (dialog, which) -> {
-                            showRestorePasswordDialog(backupFile, backupHelper);
-                        })
-                        .setNegativeButton("Bỏ qua", null)
-                        .show();
-                }
-            });
-        }).start();
-    }
-    
-    /**
-     * Restart app
-     */
-    private void restartApp() {
-        Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-        finish();
-        System.exit(0);
     }
 
     /**

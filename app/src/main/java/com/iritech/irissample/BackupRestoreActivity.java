@@ -1,11 +1,7 @@
 package com.iritech.irissample;
 
-import android.Manifest;
 import android.app.ProgressDialog;
-import android.content.DialogInterface;
-import android.content.pm.PackageManager;
 import android.database.Cursor;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
@@ -14,13 +10,21 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
 import java.io.File;
+import android.net.Uri;
+import android.provider.DocumentsContract;
+import android.widget.LinearLayout;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Activity quản lý Backup và Restore Database
@@ -33,8 +37,8 @@ import java.io.File;
  * - Xóa backup cũ
  */
 public class BackupRestoreActivity extends AppCompatActivity {
-    
-    private static final int REQUEST_STORAGE_PERMISSION = 200;
+    private ActivityResultLauncher<String> createBackupLauncher;
+    private ActivityResultLauncher<String[]> openBackupLauncher;
     
     private Button btnBackup;
     private Button btnRestore;
@@ -44,6 +48,7 @@ public class BackupRestoreActivity extends AppCompatActivity {
     private TextView textViewStatus;
     
     private BackupRestoreHelper backupHelper;
+    private BackupImportManager backupImportManager;
     private DatabaseHelper dbHelper;
     private String currentUserEmail;
     
@@ -51,9 +56,11 @@ public class BackupRestoreActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_backup_restore);
+        registerActivityResultLaunchers();
         
         // Khởi tạo helpers
         backupHelper = new BackupRestoreHelper(this);
+        backupImportManager = new BackupImportManager(this);
         dbHelper = new DatabaseHelper(this);
         
         // Lấy email user hiện tại
@@ -68,7 +75,6 @@ public class BackupRestoreActivity extends AppCompatActivity {
         
         initializeViews();
         setupListeners();
-        checkStoragePermission();
         updateBackupInfo();
     }
     
@@ -82,15 +88,323 @@ public class BackupRestoreActivity extends AppCompatActivity {
     }
     
     private void setupListeners() {
-        btnBackup.setOnClickListener(v -> showBackupDialog());
-        btnRestore.setOnClickListener(v -> showRestoreDialog());
+        btnBackup.setOnClickListener(v -> showExportAuthorizationDialog());
+        btnRestore.setOnClickListener(v -> launchOpenBackupDocument());
         btnViewBackups.setOnClickListener(v -> showBackupsList());
         btnDeleteBackups.setOnClickListener(v -> confirmDeleteAllBackups());
     }
+
     
     /**
      * Kiểm tra user có phải Super Admin không
      */
+    private void showExportAuthorizationDialog() {
+        EditText passwordInput = new EditText(this);
+
+        passwordInput.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                        InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
+
+        passwordInput.setHint(
+                "Mật khẩu tài khoản Super Admin"
+        );
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Xác thực Super Admin")
+                .setMessage(
+                        "Xác thực tài khoản trước khi xuất dữ liệu."
+                )
+                .setView(passwordInput)
+                .setPositiveButton("Tiếp tục", null)
+                .setNegativeButton("Hủy", null)
+                .create();
+
+        dialog.setOnShowListener(ignored ->
+                dialog.getButton(
+                        AlertDialog.BUTTON_POSITIVE
+                ).setOnClickListener(view -> {
+                    String accountPassword =
+                            passwordInput.getText().toString();
+
+                    if (accountPassword.isEmpty()) {
+                        passwordInput.setError(
+                                "Vui lòng nhập mật khẩu"
+                        );
+
+                        return;
+                    }
+
+                    if (!dbHelper.verifyAdminPassword(
+                            currentUserEmail,
+                            accountPassword
+                    )) {
+                        passwordInput.setError(
+                                "Mật khẩu tài khoản không đúng"
+                        );
+
+                        return;
+                    }
+
+                    passwordInput.setText("");
+                    dialog.dismiss();
+
+                    launchCreateBackupDocument();
+                })
+        );
+
+        dialog.show();
+    }
+    private void launchCreateBackupDocument() {
+        String timestamp = new SimpleDateFormat(
+                "yyyyMMdd_HHmmss",
+                Locale.US
+        ).format(new Date());
+
+        String fileName =
+                "IrisSample_" +
+                        timestamp +
+                        ".iribackup";
+
+        createBackupLauncher.launch(fileName);
+    }
+    private void showBackupPassphraseDialog(Uri destinationUri) {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+
+        int padding = (int) (
+                24 * getResources()
+                        .getDisplayMetrics()
+                        .density
+        );
+
+        container.setPadding(
+                padding,
+                0,
+                padding,
+                0
+        );
+
+        EditText passphraseInput = new EditText(this);
+        passphraseInput.setHint(
+                "Mật khẩu backup (tối thiểu 8 ký tự)"
+        );
+        passphraseInput.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                        InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
+
+        EditText confirmInput = new EditText(this);
+        confirmInput.setHint("Nhập lại mật khẩu backup");
+        confirmInput.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                        InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
+
+        container.addView(passphraseInput);
+        container.addView(confirmInput);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Đặt mật khẩu backup")
+                .setMessage(
+                        "Đây là mật khẩu riêng của file backup, " +
+                                "không phải mật khẩu đăng nhập.\n\n" +
+                                "Nếu quên mật khẩu này, file không thể phục hồi."
+                )
+                .setView(container)
+                .setPositiveButton("Export", null)
+                .setNegativeButton(
+                        "Hủy",
+                        (ignored, which) ->
+                                deleteUnusedDocument(destinationUri)
+                )
+                .create();
+
+        dialog.setOnCancelListener(
+                ignored -> deleteUnusedDocument(destinationUri)
+        );
+
+        dialog.setOnShowListener(ignored ->
+                dialog.getButton(
+                        AlertDialog.BUTTON_POSITIVE
+                ).setOnClickListener(view -> {
+                    char[] passphrase = passphraseInput
+                            .getText()
+                            .toString()
+                            .toCharArray();
+
+                    char[] confirmation = confirmInput
+                            .getText()
+                            .toString()
+                            .toCharArray();
+
+                    if (passphrase.length < 8) {
+                        Arrays.fill(passphrase, '\0');
+                        Arrays.fill(confirmation, '\0');
+
+                        passphraseInput.setError(
+                                "Cần ít nhất 8 ký tự"
+                        );
+
+                        return;
+                    }
+
+                    if (!Arrays.equals(
+                            passphrase,
+                            confirmation
+                    )) {
+                        Arrays.fill(passphrase, '\0');
+                        Arrays.fill(confirmation, '\0');
+
+                        confirmInput.setError(
+                                "Hai mật khẩu không giống nhau"
+                        );
+
+                        return;
+                    }
+
+                    Arrays.fill(confirmation, '\0');
+
+                    passphraseInput.setText("");
+                    confirmInput.setText("");
+
+                    dialog.dismiss();
+
+                    performSafExport(
+                            destinationUri,
+                            passphrase
+                    );
+                })
+        );
+
+        dialog.show();
+    }
+    private void performSafExport(
+            Uri destinationUri,
+            char[] passphrase
+    ) {
+        ProgressDialog progressDialog =
+                new ProgressDialog(this);
+
+        progressDialog.setMessage(
+                "Đang tạo file backup..."
+        );
+
+        progressDialog.setCancelable(false);
+        progressDialog.show();
+
+        btnBackup.setEnabled(false);
+        textViewStatus.setText("Đang export dữ liệu...");
+
+        new Thread(() -> {
+            BackupRestoreHelper.ExportResult result;
+
+            try {
+                result = backupHelper.exportBackup(
+                        destinationUri,
+                        passphrase
+                );
+            } finally {
+                Arrays.fill(passphrase, '\0');
+            }
+
+            runOnUiThread(() -> {
+                progressDialog.dismiss();
+                btnBackup.setEnabled(true);
+
+                if (result.isSuccess()) {
+                    textViewStatus.setText(
+                            "Export backup thành công"
+                    );
+
+                    StringBuilder message = new StringBuilder();
+
+                    message.append("File backup đã được lưu.\n\n");
+                    message.append("Kích thước: ")
+                            .append(formatFileSize(
+                                    result.getFileSize()
+                            ))
+                            .append("\n");
+
+                    message.append("Avatar Admin: ")
+                            .append(result.getAdminAvatarCount())
+                            .append("\n");
+
+                    message.append("Avatar sinh viên: ")
+                            .append(result.getStudentAvatarCount())
+                            .append("\n");
+
+                    message.append("Iris repository: ")
+                            .append(
+                                    result.isIrisIncluded()
+                                            ? "Có"
+                                            : "Không"
+                            );
+
+                    if (!result.getWarnings().isEmpty()) {
+                        message.append("\n\nCảnh báo:");
+
+                        for (String warning :
+                                result.getWarnings()) {
+                            message.append("\n- ")
+                                    .append(warning);
+                        }
+                    }
+
+                    new AlertDialog.Builder(this)
+                            .setTitle("Export thành công")
+                            .setMessage(message.toString())
+                            .setPositiveButton("OK", null)
+                            .show();
+
+                } else {
+                    textViewStatus.setText(
+                            "Export backup thất bại"
+                    );
+
+                    new AlertDialog.Builder(this)
+                            .setTitle("Export thất bại")
+                            .setMessage(result.getMessage())
+                            .setPositiveButton("OK", null)
+                            .show();
+                }
+            });
+        }).start();
+    }
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+
+        if (bytes < 1024L * 1024L) {
+            return String.format(
+                    Locale.US,
+                    "%.2f KB",
+                    bytes / 1024.0
+            );
+        }
+
+        return String.format(
+                Locale.US,
+                "%.2f MB",
+                bytes / (1024.0 * 1024.0)
+        );
+    }
+
+    private void deleteUnusedDocument(Uri uri) {
+        try {
+            DocumentsContract.deleteDocument(
+                    getContentResolver(),
+                    uri
+            );
+        } catch (Exception exception) {
+            android.util.Log.w(
+                    "BackupRestoreActivity",
+                    "Could not delete unused document",
+                    exception
+            );
+        }
+    }
     private boolean isSuperAdmin() {
         if (currentUserEmail == null) {
             return false;
@@ -103,114 +417,146 @@ public class BackupRestoreActivity extends AppCompatActivity {
         }
         return false;
     }
-    
-    /**
-     * Kiểm tra quyền truy cập storage
-     */
-    private void checkStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                Manifest.permission.READ_EXTERNAL_STORAGE},
-                        REQUEST_STORAGE_PERMISSION);
-            }
-        }
+    private void registerActivityResultLaunchers() {
+        createBackupLauncher = registerForActivityResult(
+                new ActivityResultContracts.CreateDocument(
+                        "application/vnd.iritech.iribackup"
+                ),
+                uri -> {
+                    if (uri == null) {
+                        textViewStatus.setText(
+                                "Đã hủy chọn nơi lưu backup"
+                        );
+
+                        return;
+                    }
+
+                    showBackupPassphraseDialog(uri);
+                }
+        );
+
+        openBackupLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(),
+                uri -> {
+                    if (uri == null) {
+                        textViewStatus.setText("Đã hủy chọn file backup");
+                        return;
+                    }
+                    showImportPassphraseDialog(uri);
+                }
+        );
     }
-    
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                          @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_STORAGE_PERMISSION) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Quyền truy cập storage đã được cấp", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "Cần quyền truy cập storage để backup/restore",
-                        Toast.LENGTH_LONG).show();
-            }
-        }
-    }
-    
-    /**
-     * Hiển thị dialog để backup database
-     */
-    private void showBackupDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Backup Database");
-        builder.setMessage("Nhập mật khẩu Super Admin để mã hóa file backup.\n\n" +
-                          "LƯU Ý: Hãy nhớ mật khẩu này! Bạn sẽ cần nó để restore sau này.");
-        
-        // Tạo input field cho password
-        final EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        input.setHint("Mật khẩu Super Admin");
-        builder.setView(input);
-        
-        builder.setPositiveButton("Backup", (dialog, which) -> {
-            String password = input.getText().toString().trim();
-            
-            if (password.isEmpty()) {
-                Toast.makeText(this, "Vui lòng nhập mật khẩu", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            
-            // Verify password trước khi backup
-            if (!dbHelper.verifyAdminPassword(currentUserEmail, password)) {
-                Toast.makeText(this, "Mật khẩu không đúng!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            
-            performBackup(password);
+
+    private void launchOpenBackupDocument() {
+        openBackupLauncher.launch(new String[]{
+                "application/vnd.iritech.iribackup",
+                "application/octet-stream",
+                "*/*"
         });
-        
-        builder.setNegativeButton("Hủy", null);
-        builder.show();
     }
-    
-    /**
-     * Thực hiện backup database
-     */
-    private void performBackup(String password) {
+
+    private void showImportPassphraseDialog(Uri sourceUri) {
+        EditText input = new EditText(this);
+        input.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                        InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
+        input.setHint("Mật khẩu file backup");
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Phục hồi dữ liệu")
+                .setMessage(
+                        "Thao tác này sẽ thay thế toàn bộ dữ liệu hiện tại. " +
+                                "Database hiện tại sẽ được tạo safety backup trước khi thay thế.\n\n" +
+                                "Nhập mật khẩu đã dùng khi tạo file backup:"
+                )
+                .setView(input)
+                .setPositiveButton("Phục hồi", null)
+                .setNegativeButton("Hủy", null)
+                .create();
+
+        dialog.setOnShowListener(ignored ->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                        .setOnClickListener(view -> {
+                            char[] passphrase = input.getText()
+                                    .toString()
+                                    .toCharArray();
+                            if (passphrase.length == 0) {
+                                input.setError("Vui lòng nhập mật khẩu backup");
+                                return;
+                            }
+
+                            input.setText("");
+                            dialog.dismiss();
+                            performSafImport(sourceUri, passphrase);
+                        })
+        );
+        dialog.show();
+    }
+
+    private void performSafImport(Uri sourceUri, char[] passphrase) {
         ProgressDialog progressDialog = new ProgressDialog(this);
-        progressDialog.setMessage("Đang backup database...");
+        progressDialog.setMessage("Đang kiểm tra và phục hồi dữ liệu...");
         progressDialog.setCancelable(false);
         progressDialog.show();
-        
-        // Chạy backup trong background thread
+
+        btnBackup.setEnabled(false);
+        btnRestore.setEnabled(false);
+        textViewStatus.setText("Đang kiểm tra file backup...");
+
         new Thread(() -> {
-            File backupFile = backupHelper.backupDatabase(password);
-            
+            BackupImportManager.ImportResult result;
+            try {
+                result = backupImportManager.importBackup(sourceUri, passphrase);
+            } finally {
+                Arrays.fill(passphrase, '\0');
+            }
+
             runOnUiThread(() -> {
                 progressDialog.dismiss();
-                
-                if (backupFile != null) {
-                    BackupRestoreHelper.BackupInfo info = backupHelper.getBackupInfo(backupFile);
-                    
+                btnBackup.setEnabled(true);
+                btnRestore.setEnabled(true);
+
+                if (!result.isSuccess()) {
+                    textViewStatus.setText("Phục hồi dữ liệu thất bại");
                     new AlertDialog.Builder(this)
-                        .setTitle("Backup thành công!")
-                        .setMessage("File backup đã được lưu tại:\n\n" +
-                                   info.filePath + "\n\n" +
-                                   "Kích thước: " + info.getFormattedSize() + "\n" +
-                                   "Thời gian: " + info.getFormattedDate() + "\n\n" +
-                                   "Hãy nhớ mật khẩu bạn vừa nhập để restore sau này!")
-                        .setPositiveButton("OK", null)
-                        .show();
-                    
-                    updateBackupInfo();
-                } else {
-                    new AlertDialog.Builder(this)
-                        .setTitle("Backup thất bại")
-                        .setMessage("Không thể tạo file backup. Vui lòng kiểm tra:\n" +
-                                   "- Quyền truy cập storage\n" +
-                                   "- Dung lượng đĩa còn trống")
-                        .setPositiveButton("OK", null)
-                        .show();
+                            .setTitle("Phục hồi thất bại")
+                            .setMessage(result.getMessage())
+                            .setPositiveButton("OK", null)
+                            .show();
+                    return;
                 }
+
+                textViewStatus.setText("Phục hồi dữ liệu thành công");
+                StringBuilder message = new StringBuilder();
+                message.append("Dữ liệu đã được phục hồi an toàn.\n\n")
+                        .append("Format: ")
+                        .append(result.isVersionedFormat() ? ".iribackup" : ".enc legacy")
+                        .append("\nAvatar Admin: ")
+                        .append(result.getAdminAvatarCount())
+                        .append("\nAvatar sinh viên: ")
+                        .append(result.getStudentAvatarCount())
+                        .append("\nIris repository: ")
+                        .append(result.isIrisRestored() ? "Đã lưu" : "Không có");
+
+                if (!result.getWarnings().isEmpty()) {
+                    message.append("\n\nCảnh báo:");
+                    for (String warning : result.getWarnings()) {
+                        message.append("\n- ").append(warning);
+                    }
+                }
+                message.append("\n\nỨng dụng sẽ khởi động lại.");
+
+                new AlertDialog.Builder(this)
+                        .setTitle("Phục hồi thành công")
+                        .setMessage(message.toString())
+                        .setCancelable(false)
+                        .setPositiveButton("Khởi động lại", (ignored, which) -> restartApp())
+                        .show();
             });
         }).start();
     }
+
     
     /**
      * Hiển thị dialog để restore database
@@ -372,10 +718,13 @@ public class BackupRestoreActivity extends AppCompatActivity {
             btnRestore.setEnabled(true);
             btnDeleteBackups.setEnabled(true);
         } else {
-            textViewBackupInfo.setText("Chưa có file backup nào");
+            textViewBackupInfo.setText(
+                    "Chưa phát hiện backup cũ (.enc).\n" +
+                            "Bạn vẫn có thể chọn file .iribackup hoặc .enc để phục hồi."
+            );
             textViewBackupInfo.setVisibility(View.VISIBLE);
             
-            btnRestore.setEnabled(false);
+            btnRestore.setEnabled(true);
             btnDeleteBackups.setEnabled(false);
         }
     }

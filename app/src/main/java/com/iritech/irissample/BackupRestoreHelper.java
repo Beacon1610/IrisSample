@@ -19,7 +19,17 @@ import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+import android.net.Uri;
+import android.provider.DocumentsContract;
 
+import com.google.gson.Gson;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.TimeZone;
 /**
  * Helper class quản lý Backup và Restore database
  * Tích hợp với EncryptionHelper để mã hóa/giải mã an toàn
@@ -38,7 +48,9 @@ import java.util.zip.ZipOutputStream;
  * 5. Nếu sai password → Báo lỗi, cho phép thử lại hoặc bỏ qua
  */
 public class BackupRestoreHelper {
-    
+    private static final long MAX_STAGED_DATABASE_BYTES =
+            1024L * 1024L * 1024L;
+
     private static final String TAG = "BackupRestoreHelper";
     
     // Tên thư mục lưu backup trong bộ nhớ ngoài
@@ -48,6 +60,14 @@ public class BackupRestoreHelper {
     
     // Tên database file (phải khớp với DatabaseHelper)
     private static final String DATABASE_NAME = "attendance.db";
+    private static final String SAFETY_DIRECTORY_NAME = "restore_safety";
+
+    private static final String[] SQLITE_FILE_SUFFIXES = {
+            "",
+            "-wal",
+            "-shm",
+            "-journal"
+    };
     
     // Tên thư mục avatar trong file ZIP backup
     private static final String ZIP_AVATAR_FOLDER = "avatars";
@@ -59,7 +79,495 @@ public class BackupRestoreHelper {
         this.context = context.getApplicationContext();
         this.dbHelper = new DatabaseHelper(context);
     }
-    
+    public ExportResult exportBackup(
+            Uri destinationUri,
+            char[] passphrase
+    ) {
+        if (destinationUri == null) {
+            return ExportResult.failure(
+                    "Chưa chọn nơi lưu backup."
+            );
+        }
+
+        if (passphrase == null || passphrase.length < 8) {
+            return ExportResult.failure(
+                    "Mật khẩu backup phải có ít nhất 8 ký tự."
+            );
+        }
+
+        File workDirectory = new File(
+                context.getNoBackupFilesDir(),
+                "export_work"
+        );
+
+        File databaseSnapshot = new File(
+                workDirectory,
+                DATABASE_NAME
+        );
+
+        File zipFile = new File(
+                workDirectory,
+                "backup_payload.zip"
+        );
+
+        File encryptedFile = new File(
+                workDirectory,
+                "backup.iribackup"
+        );
+
+        boolean shouldDeleteDestinationOnFailure = true;
+
+        try {
+            deleteRecursivelyIfExists(workDirectory);
+
+            if (!workDirectory.mkdirs() &&
+                    !workDirectory.isDirectory()) {
+                throw new IOException(
+                        "Không thể tạo thư mục export staging."
+                );
+            }
+
+            List<String> warnings = new ArrayList<>();
+            List<BackupSource> sources = new ArrayList<>();
+
+            AvatarCounts avatarCounts =
+                    collectAvatarSources(sources, warnings);
+
+            checkpointAndCloseDatabase();
+
+            File currentDatabase =
+                    context.getDatabasePath(DATABASE_NAME);
+
+            if (!currentDatabase.isFile()) {
+                throw new IOException(
+                        "Không tìm thấy database hiện tại."
+                );
+            }
+
+            copyFile(currentDatabase, databaseSnapshot);
+
+            DatabaseValidator.ValidationResult validation =
+                    DatabaseValidator.validateRestoreDatabase(
+                            databaseSnapshot
+                    );
+
+            if (!validation.isValid()) {
+                throw new IOException(
+                        "Database snapshot không hợp lệ: " +
+                                validation.getMessage()
+                );
+            }
+
+            sources.add(
+                    0,
+                    new BackupSource(
+                            databaseSnapshot,
+                            "database/" + DATABASE_NAME,
+                            "database",
+                            null
+                    )
+            );
+
+            File irisRepository = findOptionalIrisRepository();
+            boolean irisIncluded = false;
+
+            if (irisRepository != null) {
+                sources.add(new BackupSource(
+                        irisRepository,
+                        "biometrics/iris/iritechdb.repo",
+                        "iris_repository",
+                        null
+                ));
+
+                irisIncluded = true;
+            } else {
+                warnings.add(
+                        "Không tìm thấy hoặc không thể đọc " +
+                                "iritechdb.repo. Backup không chứa iris repository."
+                );
+            }
+
+            BackupMetadata metadata = createMetadata(
+                    sources,
+                    warnings,
+                    avatarCounts,
+                    irisIncluded
+            );
+
+            createEncryptedPayloadZip(
+                    zipFile,
+                    metadata,
+                    sources
+            );
+
+            try (InputStream input = new BufferedInputStream(
+                    new FileInputStream(zipFile));
+                 OutputStream output = new BufferedOutputStream(
+                         new FileOutputStream(encryptedFile))) {
+
+                EncryptionHelper.encryptBackupStream(
+                        input,
+                        output,
+                        passphrase
+                );
+            }
+
+            long bytesWritten = copyBackupToUri(
+                    encryptedFile,
+                    destinationUri
+            );
+
+            if (bytesWritten != encryptedFile.length()) {
+                throw new IOException(
+                        "Số byte ghi ra SAF không khớp file backup."
+                );
+            }
+
+            shouldDeleteDestinationOnFailure = false;
+
+            return ExportResult.success(
+                    destinationUri,
+                    bytesWritten,
+                    irisIncluded,
+                    avatarCounts.adminCount,
+                    avatarCounts.studentCount,
+                    warnings
+            );
+
+        } catch (Exception exception) {
+            Log.e(TAG, "SAF backup export failed", exception);
+
+            if (shouldDeleteDestinationOnFailure) {
+                deleteFailedDestination(destinationUri);
+            }
+
+            return ExportResult.failure(
+                    exception.getMessage() == null
+                            ? "Không thể tạo file backup."
+                            : exception.getMessage()
+            );
+
+        } finally {
+            try {
+                deleteRecursivelyIfExists(workDirectory);
+            } catch (IOException exception) {
+                Log.w(
+                        TAG,
+                        "Could not clean export work directory",
+                        exception
+                );
+            }
+        }
+    }
+    private AvatarCounts collectAvatarSources(
+            List<BackupSource> sources,
+            List<String> warnings
+    ) {
+        AvatarCounts counts = new AvatarCounts();
+        SQLiteDatabase database = dbHelper.getReadableDatabase();
+
+        try (Cursor cursor = database.rawQuery(
+                "SELECT " +
+                        DatabaseHelper.COL_ADMIN_ID + ", " +
+                        DatabaseHelper.COL_ADMIN_PHOTO +
+                        " FROM " + DatabaseHelper.TABLE_ADMIN +
+                        " WHERE " +
+                        DatabaseHelper.COL_ADMIN_PHOTO +
+                        " IS NOT NULL AND " +
+                        DatabaseHelper.COL_ADMIN_PHOTO +
+                        " != ''",
+                null
+        )) {
+            while (cursor.moveToNext()) {
+                String adminId = cursor.getString(0);
+                String path = cursor.getString(1);
+
+                if (addAvatarSource(
+                        sources,
+                        warnings,
+                        path,
+                        "assets/admins",
+                        "admin_avatar",
+                        adminId
+                )) {
+                    counts.adminCount++;
+                }
+            }
+        }
+
+        try (Cursor cursor = database.rawQuery(
+                "SELECT " +
+                        DatabaseHelper.COL_STUDENT_ID + ", " +
+                        DatabaseHelper.COL_PHOTO_PATH +
+                        " FROM " + DatabaseHelper.TABLE_STUDENTS +
+                        " WHERE " +
+                        DatabaseHelper.COL_PHOTO_PATH +
+                        " IS NOT NULL AND " +
+                        DatabaseHelper.COL_PHOTO_PATH +
+                        " != ''",
+                null
+        )) {
+            while (cursor.moveToNext()) {
+                String studentId = cursor.getString(0);
+                String path = cursor.getString(1);
+
+                if (addAvatarSource(
+                        sources,
+                        warnings,
+                        path,
+                        "assets/students",
+                        "student_avatar",
+                        studentId
+                )) {
+                    counts.studentCount++;
+                }
+            }
+        }
+
+        return counts;
+    }
+
+    private boolean addAvatarSource(
+            List<BackupSource> sources,
+            List<String> warnings,
+            String filePath,
+            String zipDirectory,
+            String type,
+            String ownerId
+    ) {
+        File file = new File(filePath);
+
+        if (!file.isFile() || !file.canRead()) {
+            warnings.add(
+                    "Không thể backup " + type +
+                            " của " + ownerId +
+                            ": file không tồn tại hoặc không đọc được."
+            );
+
+            return false;
+        }
+
+        String safeOwner = sanitizePathSegment(ownerId);
+        String safeFileName = sanitizePathSegment(file.getName());
+
+        String zipPath =
+                zipDirectory + "/" +
+                        safeOwner + "/" +
+                        safeFileName;
+
+        sources.add(new BackupSource(
+                file,
+                zipPath,
+                type,
+                ownerId
+        ));
+
+        return true;
+    }
+
+    private String sanitizePathSegment(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "unknown";
+        }
+
+        String sanitized = value.replaceAll(
+                "[^A-Za-z0-9._-]",
+                "_"
+        );
+
+        return sanitized.isEmpty() ? "unknown" : sanitized;
+    }
+    private File findOptionalIrisRepository() {
+        List<File> candidates = new ArrayList<>();
+
+        candidates.add(new File(
+                context.getFilesDir(),
+                "iris/iritechdb.repo"
+        ));
+
+        File externalFiles = context.getExternalFilesDir(null);
+
+        if (externalFiles != null) {
+            candidates.add(new File(
+                    externalFiles,
+                    "iris/iritechdb.repo"
+            ));
+        }
+
+        // Legacy SDK path. Không request storage permission nếu không đọc được.
+        String packageName = context.getPackageName();
+        int lastDot = packageName.lastIndexOf('.');
+
+        String packageSuffix = lastDot >= 0
+                ? packageName.substring(lastDot + 1)
+                : packageName;
+
+        File legacyRoot =
+                Environment.getExternalStorageDirectory();
+
+        candidates.add(new File(
+                legacyRoot,
+                "iritech/" + packageSuffix +
+                        "/iritechdb.repo"
+        ));
+
+        for (File candidate : candidates) {
+            if (candidate.isFile() && candidate.canRead()) {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+    private BackupMetadata createMetadata(
+            List<BackupSource> sources,
+            List<String> warnings,
+            AvatarCounts avatarCounts,
+            boolean irisIncluded
+    ) throws IOException {
+        BackupMetadata metadata = new BackupMetadata();
+
+        metadata.applicationId = context.getPackageName();
+        metadata.appVersionName = BuildConfig.VERSION_NAME;
+        metadata.appVersionCode = BuildConfig.VERSION_CODE;
+        metadata.databaseName = DATABASE_NAME;
+        metadata.databaseVersion =
+                DatabaseHelper.getCurrentDatabaseVersion();
+
+        SimpleDateFormat utcFormat = new SimpleDateFormat(
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                Locale.US
+        );
+
+        utcFormat.setTimeZone(
+                TimeZone.getTimeZone("UTC")
+        );
+
+        metadata.createdAtUtc =
+                utcFormat.format(new Date());
+
+        metadata.irisRepositoryIncluded = irisIncluded;
+        metadata.rawIrisCaptureIncluded = false;
+        metadata.adminAvatarCount =
+                avatarCounts.adminCount;
+        metadata.studentAvatarCount =
+                avatarCounts.studentCount;
+
+        metadata.warnings.addAll(warnings);
+
+        for (BackupSource source : sources) {
+            String checksum =
+                    EncryptionHelper.calculateFileChecksum(
+                            source.file
+                    );
+
+            if (checksum == null) {
+                throw new IOException(
+                        "Không thể tính checksum cho " +
+                                source.zipPath
+                );
+            }
+
+            metadata.addEntry(
+                    source.zipPath,
+                    source.type,
+                    source.ownerId,
+                    source.file.length(),
+                    checksum
+            );
+        }
+
+        return metadata;
+    }
+
+    private void createEncryptedPayloadZip(
+            File outputZip,
+            BackupMetadata metadata,
+            List<BackupSource> sources
+    ) throws IOException {
+        Gson gson = new Gson();
+
+        byte[] metadataBytes = gson
+                .toJson(metadata)
+                .getBytes(StandardCharsets.UTF_8);
+
+        try (ZipOutputStream zipOutput =
+                     new ZipOutputStream(
+                             new BufferedOutputStream(
+                                     new FileOutputStream(outputZip)
+                             )
+                     )) {
+
+            ZipEntry metadataEntry =
+                    new ZipEntry("metadata.json");
+
+            zipOutput.putNextEntry(metadataEntry);
+            zipOutput.write(metadataBytes);
+            zipOutput.closeEntry();
+
+            for (BackupSource source : sources) {
+                addFileToZip(
+                        zipOutput,
+                        source.file,
+                        source.zipPath
+                );
+            }
+        }
+    }
+    private long copyBackupToUri(
+            File source,
+            Uri destinationUri
+    ) throws IOException {
+        OutputStream output = context
+                .getContentResolver()
+                .openOutputStream(destinationUri);
+
+        if (output == null) {
+            throw new IOException(
+                    "Không thể mở file đích SAF."
+            );
+        }
+
+        long totalBytes = 0;
+
+        try (InputStream input = new BufferedInputStream(
+                new FileInputStream(source));
+             OutputStream destination =
+                     new BufferedOutputStream(output)) {
+
+            byte[] buffer = new byte[64 * 1024];
+            int bytesRead;
+
+            while ((bytesRead = input.read(buffer)) != -1) {
+                destination.write(
+                        buffer,
+                        0,
+                        bytesRead
+                );
+
+                totalBytes += bytesRead;
+            }
+
+            destination.flush();
+        }
+
+        return totalBytes;
+    }
+
+    private void deleteFailedDestination(Uri destinationUri) {
+        try {
+            DocumentsContract.deleteDocument(
+                    context.getContentResolver(),
+                    destinationUri
+            );
+        } catch (Exception exception) {
+            Log.w(
+                    TAG,
+                    "Could not delete incomplete SAF document",
+                    exception
+            );
+        }
+    }
     /**
      * Backup database + avatar images ra file được mã hóa
      * Format mới: ZIP(DB + avatars) → Encrypt → .enc
@@ -137,58 +645,314 @@ public class BackupRestoreHelper {
      * @return true nếu restore thành công, false nếu thất bại (sai password)
      */
     public boolean restoreDatabase(File backupFile, String password) {
+        File databaseFile = context.getDatabasePath(DATABASE_NAME);
+
+        File workDirectory = new File(
+                context.getNoBackupFilesDir(),
+                "restore_work"
+        );
+
+        File decryptedFile = new File(
+                workDirectory,
+                "decrypted_backup.dat"
+        );
+
+        File stagedDatabase = new File(
+                workDirectory,
+                DATABASE_NAME
+        );
+
+        File safetyDirectory = null;
+        boolean replacementStarted = false;
+
         try {
-            // 1. Kiểm tra file backup có tồn tại không
-            if (!backupFile.exists()) {
-                Log.e(TAG, "Backup file not found: " + backupFile.getAbsolutePath());
+            if (backupFile == null || !backupFile.isFile()) {
+                Log.e(TAG, "Backup file does not exist");
                 return false;
             }
-            
-            // 2. Đóng database hiện tại
-            dbHelper.close();
-            
-            // 3. Lấy đường dẫn file database
-            File dbFile = context.getDatabasePath(DATABASE_NAME);
-            
-            // 4. Tạo file tạm để giải mã trước
-            File tempFile = new File(context.getCacheDir(), "temp_restore.dat");
-            
-            // 5. Giải mã file backup
-            Log.d(TAG, "Starting restore decryption...");
-            Log.d(TAG, "Source: " + backupFile.getAbsolutePath());
-            Log.d(TAG, "Temp destination: " + tempFile.getAbsolutePath());
-            
-            boolean success = EncryptionHelper.decryptFile(backupFile, tempFile, password);
-            
-            if (!success) {
-                Log.e(TAG, "Restore decryption failed - Wrong password or corrupted file");
-                tempFile.delete();
+
+            deleteRecursivelyIfExists(workDirectory);
+
+            if (!workDirectory.mkdirs() &&
+                    !workDirectory.isDirectory()) {
+                throw new IOException(
+                        "Cannot create restore work directory"
+                );
+            }
+
+            // 1. Giải mã hoàn toàn trong staging.
+            boolean decrypted = EncryptionHelper.decryptFile(
+                    backupFile,
+                    decryptedFile,
+                    password
+            );
+
+            if (!decrypted) {
+                Log.e(
+                        TAG,
+                        "Wrong password or corrupted backup"
+                );
                 return false;
             }
-            
-            // 6. Kiểm tra format: ZIP (DB + avatars) hay raw DB (backup cũ)
-            if (isZipFile(tempFile)) {
-                Log.d(TAG, "Detected ZIP format backup (DB + avatars)");
-                restoreFromZip(tempFile, dbFile);
-            } else {
-                Log.d(TAG, "Detected legacy format backup (DB only)");
-                if (dbFile.exists()) {
-                    dbFile.delete();
-                }
-                if (!tempFile.renameTo(dbFile)) {
-                    copyFile(tempFile, dbFile);
-                }
+
+            // 2. Lấy DB ra staging, chưa đụng tới DB đang dùng.
+            prepareStagedDatabase(
+                    decryptedFile,
+                    stagedDatabase
+            );
+
+            // 3. Migrate bản staging lên schema hiện tại.
+            migrateStagedDatabase(stagedDatabase);
+
+            // 4. Validate đầy đủ trước khi thay DB.
+            DatabaseValidator.ValidationResult stagedValidation =
+                    DatabaseValidator.validateRestoreDatabase(
+                            stagedDatabase
+                    );
+
+            if (!stagedValidation.isValid()) {
+                throw new IOException(
+                        "Staged database validation failed [" +
+                                stagedValidation.getErrorCode() +
+                                "]: " +
+                                stagedValidation.getMessage()
+                );
             }
-            
-            // 7. Xóa file tạm
-            tempFile.delete();
-            
-            Log.d(TAG, "Restore completed successfully");
+
+            // 5. Checkpoint và đóng helper trước khi safety copy.
+            checkpointAndCloseDatabase();
+
+            // 6. Tạo safety backup trước khi xóa DB hiện tại.
+            safetyDirectory = createSafetyBackup(databaseFile);
+
+            // Từ đây mọi lỗi đều phải rollback.
+            replacementStarted = true;
+
+            // 7. Xóa DB hiện tại và toàn bộ sidecar.
+            deleteSQLiteFiles(databaseFile);
+
+            // 8. Copy staged database vào vị trí thật.
+            copyFile(stagedDatabase, databaseFile);
+
+            // Đảm bảo sidecar cũ không còn.
+            deleteSQLiteSidecars(databaseFile);
+
+            // 9. Validate lại chính file vừa được cài đặt.
+            DatabaseValidator.ValidationResult installedValidation =
+                    DatabaseValidator.validateRestoreDatabase(
+                            databaseFile
+                    );
+
+            if (!installedValidation.isValid()) {
+                throw new IOException(
+                        "Installed database validation failed [" +
+                                installedValidation.getErrorCode() +
+                                "]: " +
+                                installedValidation.getMessage()
+                );
+            }
+
+            // Legacy ZIP vẫn được nhận diện và đọc DB.
+            // Avatar legacy sẽ được xử lý riêng ở bước sau.
+            clearSafetyBackup(safetyDirectory);
+
+            Log.d(
+                    TAG,
+                    "Database restored successfully, version=" +
+                            installedValidation.getDatabaseVersion()
+            );
+
             return true;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Restore failed", e);
+
+        } catch (Exception restoreException) {
+            Log.e(TAG, "Restore failed", restoreException);
+
+            if (replacementStarted) {
+                try {
+                    rollbackFromSafetyBackup(
+                            databaseFile,
+                            safetyDirectory
+                    );
+
+                    Log.w(
+                            TAG,
+                            "Restore failed; original database was restored"
+                    );
+
+                } catch (Exception rollbackException) {
+                    Log.e(
+                            TAG,
+                            "CRITICAL: database rollback failed",
+                            rollbackException
+                    );
+                }
+            }
+
             return false;
+
+        } finally {
+            try {
+                deleteRecursivelyIfExists(workDirectory);
+            } catch (IOException cleanupException) {
+                Log.w(
+                        TAG,
+                        "Could not clean restore work directory",
+                        cleanupException
+                );
+            }
+        }
+    }
+    /**
+     * Hỗ trợ:
+     * - Legacy encrypted raw SQLite database.
+     * - Legacy encrypted ZIP có attendance.db ở root.
+     * - Format mới có database/attendance.db.
+     */
+    private void prepareStagedDatabase(
+            File decryptedFile,
+            File stagedDatabase
+    ) throws IOException {
+        if (!isZipFile(decryptedFile)) {
+            // Legacy format: encrypted raw SQLite DB.
+            copyFile(decryptedFile, stagedDatabase);
+            return;
+        }
+
+        boolean databaseFound = false;
+
+        try (ZipInputStream zipInput = new ZipInputStream(
+                new FileInputStream(decryptedFile))) {
+
+            ZipEntry entry;
+
+            while ((entry = zipInput.getNextEntry()) != null) {
+                String entryName = entry.getName()
+                        .replace('\\', '/');
+
+                boolean isDatabaseEntry =
+                        DATABASE_NAME.equals(entryName) ||
+                                ("database/" + DATABASE_NAME)
+                                        .equals(entryName);
+
+                if (isDatabaseEntry && !entry.isDirectory()) {
+                    if (databaseFound) {
+                        throw new IOException(
+                                "Backup contains duplicate database entries"
+                        );
+                    }
+
+                    if (entry.getSize() >
+                            MAX_STAGED_DATABASE_BYTES) {
+                        throw new IOException(
+                                "Database entry is too large"
+                        );
+                    }
+
+                    writeDatabaseEntryToFile(
+                            zipInput,
+                            stagedDatabase
+                    );
+
+                    databaseFound = true;
+                }
+
+                zipInput.closeEntry();
+            }
+        }
+
+        if (!databaseFound || !stagedDatabase.isFile()) {
+            throw new IOException(
+                    "Backup does not contain " + DATABASE_NAME
+            );
+        }
+    }
+
+    private void writeDatabaseEntryToFile(
+            ZipInputStream zipInput,
+            File destination
+    ) throws IOException {
+        File parent = destination.getParentFile();
+
+        if (parent != null &&
+                !parent.exists() &&
+                !parent.mkdirs()) {
+            throw new IOException(
+                    "Cannot create staging directory"
+            );
+        }
+
+        long totalBytes = 0;
+
+        try (FileOutputStream output =
+                     new FileOutputStream(destination)) {
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+
+            while ((bytesRead = zipInput.read(buffer)) != -1) {
+                totalBytes += bytesRead;
+
+                if (totalBytes > MAX_STAGED_DATABASE_BYTES) {
+                    throw new IOException(
+                            "Extracted database exceeds size limit"
+                    );
+                }
+
+                output.write(buffer, 0, bytesRead);
+            }
+
+            output.flush();
+            output.getFD().sync();
+        }
+    }
+
+    private void migrateStagedDatabase(
+            File stagedDatabase
+    ) throws IOException {
+        SQLiteDatabase database = null;
+
+        try {
+            database = SQLiteDatabase.openDatabase(
+                    stagedDatabase.getAbsolutePath(),
+                    null,
+                    SQLiteDatabase.OPEN_READWRITE
+            );
+
+            DatabaseHelper.migrateToCurrentSchema(database);
+
+        } catch (Exception exception) {
+            throw new IOException(
+                    "Cannot migrate staged database: " +
+                            exception.getMessage(),
+                    exception
+            );
+
+        } finally {
+            if (database != null && database.isOpen()) {
+                database.close();
+            }
+        }
+    }
+    private void deleteSQLiteSidecars(
+            File databaseFile
+    ) throws IOException {
+        String[] sidecarSuffixes = {
+                "-wal",
+                "-shm",
+                "-journal"
+        };
+
+        for (String suffix : sidecarSuffixes) {
+            File sidecar = new File(
+                    databaseFile.getAbsolutePath() + suffix
+            );
+
+            if (sidecar.exists() && !sidecar.delete()) {
+                throw new IOException(
+                        "Cannot delete SQLite sidecar: " +
+                                sidecar.getAbsolutePath()
+                );
+            }
         }
     }
     
@@ -385,18 +1149,30 @@ public class BackupRestoreHelper {
     /**
      * Thêm một file vào ZIP
      */
-    private void addFileToZip(ZipOutputStream zos, File file, String entryName) throws IOException {
+    private void addFileToZip(
+            ZipOutputStream zipOutput,
+            File file,
+            String entryName
+    ) throws IOException {
         ZipEntry entry = new ZipEntry(entryName);
-        zos.putNextEntry(entry);
-        
-        FileInputStream fis = new FileInputStream(file);
-        byte[] buffer = new byte[8192];
-        int len;
-        while ((len = fis.read(buffer)) > 0) {
-            zos.write(buffer, 0, len);
+        zipOutput.putNextEntry(entry);
+
+        try (FileInputStream input =
+                     new FileInputStream(file)) {
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+
+            while ((bytesRead = input.read(buffer)) != -1) {
+                zipOutput.write(
+                        buffer,
+                        0,
+                        bytesRead
+                );
+            }
         }
-        fis.close();
-        zos.closeEntry();
+
+        zipOutput.closeEntry();
     }
     
     /**
@@ -521,18 +1297,207 @@ public class BackupRestoreHelper {
     /**
      * Copy file thủ công (fallback nếu renameTo() thất bại)
      */
-    private void copyFile(File source, File dest) throws Exception {
-        FileInputStream fis = new FileInputStream(source);
-        FileOutputStream fos = new FileOutputStream(dest);
-        
-        byte[] buffer = new byte[8192];
-        int bytesRead;
-        while ((bytesRead = fis.read(buffer)) != -1) {
-            fos.write(buffer, 0, bytesRead);
+
+//    private void copyFile(File source, File dest) throws Exception {
+//        FileInputStream fis = new FileInputStream(source);
+//        FileOutputStream fos = new FileOutputStream(dest);
+//
+//        byte[] buffer = new byte[8192];
+//        int bytesRead;
+//        while ((bytesRead = fis.read(buffer)) != -1) {
+//            fos.write(buffer, 0, bytesRead);
+//        }
+//
+//        fis.close();
+//        fos.close();
+//    }
+    private void copyFile(File source, File destination) throws IOException {
+        if (source == null || !source.isFile()) {
+            throw new IOException(
+                    "Source file does not exist: " +
+                            (source == null ? "null" : source.getAbsolutePath())
+            );
         }
-        
-        fis.close();
-        fos.close();
+
+        File parent = destination.getParentFile();
+
+        if (parent != null &&
+                !parent.exists() &&
+                !parent.mkdirs()) {
+            throw new IOException(
+                    "Cannot create destination directory: " +
+                            parent.getAbsolutePath()
+            );
+        }
+
+        try (FileInputStream input = new FileInputStream(source);
+             FileOutputStream output = new FileOutputStream(destination)) {
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+
+            while ((bytesRead = input.read(buffer)) != -1) {
+                output.write(buffer, 0, bytesRead);
+            }
+
+            output.flush();
+            output.getFD().sync();
+        }
+    }
+    /**
+     * Yêu cầu SQLite ghi WAL về database chính trước khi copy.
+     * Sau đó đóng DatabaseHelper do BackupRestoreHelper sở hữu.
+     */
+    private void checkpointAndCloseDatabase() {
+        try {
+            SQLiteDatabase database = dbHelper.getWritableDatabase();
+
+            try (Cursor cursor = database.rawQuery(
+                    "PRAGMA wal_checkpoint(FULL)", null)) {
+                cursor.moveToFirst();
+            }
+
+        } catch (Exception exception) {
+            // Database có thể không dùng WAL; vẫn tiếp tục đóng.
+            Log.w(TAG, "Could not checkpoint database", exception);
+
+        } finally {
+            dbHelper.close();
+        }
+    }
+
+    /**
+     * Tạo safety copy của database hiện tại và các SQLite sidecar.
+     */
+    private File createSafetyBackup(File databaseFile) throws IOException {
+        File safetyDirectory = new File(
+                context.getNoBackupFilesDir(),
+                SAFETY_DIRECTORY_NAME
+        );
+
+        deleteRecursivelyIfExists(safetyDirectory);
+
+        if (!safetyDirectory.mkdirs() &&
+                !safetyDirectory.isDirectory()) {
+            throw new IOException(
+                    "Cannot create safety directory: " +
+                            safetyDirectory.getAbsolutePath()
+            );
+        }
+
+        for (String suffix : SQLITE_FILE_SUFFIXES) {
+            File source = new File(
+                    databaseFile.getAbsolutePath() + suffix
+            );
+
+            if (source.isFile()) {
+                File destination = new File(
+                        safetyDirectory,
+                        DATABASE_NAME + suffix
+                );
+
+                copyFile(source, destination);
+            }
+        }
+
+        return safetyDirectory;
+    }
+
+    /**
+     * Xóa database restore lỗi và đưa safety copy trở lại.
+     */
+    private void rollbackFromSafetyBackup(
+            File databaseFile,
+            File safetyDirectory
+    ) throws IOException {
+        dbHelper.close();
+        deleteSQLiteFiles(databaseFile);
+
+        if (safetyDirectory == null ||
+                !safetyDirectory.isDirectory()) {
+            throw new IOException(
+                    "Safety backup directory is missing"
+            );
+        }
+
+        File safetyDatabase = new File(
+                safetyDirectory,
+                DATABASE_NAME
+        );
+
+        // Nếu trước restore không có DB thì rollback chỉ cần xóa DB mới.
+        if (!safetyDatabase.isFile()) {
+            return;
+        }
+
+        for (String suffix : SQLITE_FILE_SUFFIXES) {
+            File source = new File(
+                    safetyDirectory,
+                    DATABASE_NAME + suffix
+            );
+
+            if (source.isFile()) {
+                File destination = new File(
+                        databaseFile.getAbsolutePath() + suffix
+                );
+
+                copyFile(source, destination);
+            }
+        }
+    }
+
+    /**
+     * Xóa attendance.db cùng WAL, SHM và journal.
+     */
+    private void deleteSQLiteFiles(File databaseFile) throws IOException {
+        for (String suffix : SQLITE_FILE_SUFFIXES) {
+            File file = new File(
+                    databaseFile.getAbsolutePath() + suffix
+            );
+
+            if (file.exists() && !file.delete()) {
+                throw new IOException(
+                        "Cannot delete SQLite file: " +
+                                file.getAbsolutePath()
+                );
+            }
+        }
+    }
+
+    private void deleteRecursivelyIfExists(File file) throws IOException {
+        if (file == null || !file.exists()) {
+            return;
+        }
+
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+
+            if (children == null) {
+                throw new IOException(
+                        "Cannot list directory: " +
+                                file.getAbsolutePath()
+                );
+            }
+
+            for (File child : children) {
+                deleteRecursivelyIfExists(child);
+            }
+        }
+
+        if (!file.delete()) {
+            throw new IOException(
+                    "Cannot delete: " + file.getAbsolutePath()
+            );
+        }
+    }
+
+    private void clearSafetyBackup(File safetyDirectory) {
+        try {
+            deleteRecursivelyIfExists(safetyDirectory);
+        } catch (IOException exception) {
+            // Không làm restore bị báo lỗi chỉ vì cleanup thất bại.
+            Log.w(TAG, "Could not remove safety backup", exception);
+        }
     }
     
     /**
@@ -566,6 +1531,129 @@ public class BackupRestoreHelper {
         public String getFormattedDate() {
             SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.US);
             return sdf.format(new Date(lastModified));
+        }
+    }
+    private static final class BackupSource {
+
+        final File file;
+        final String zipPath;
+        final String type;
+        final String ownerId;
+
+        BackupSource(
+                File file,
+                String zipPath,
+                String type,
+                String ownerId
+        ) {
+            this.file = file;
+            this.zipPath = zipPath;
+            this.type = type;
+            this.ownerId = ownerId;
+        }
+    }
+
+    private static final class AvatarCounts {
+        int adminCount;
+        int studentCount;
+    }
+
+    public static final class ExportResult {
+
+        private final boolean success;
+        private final String message;
+        private final Uri destinationUri;
+        private final long fileSize;
+        private final boolean irisIncluded;
+        private final int adminAvatarCount;
+        private final int studentAvatarCount;
+        private final List<String> warnings;
+
+        private ExportResult(
+                boolean success,
+                String message,
+                Uri destinationUri,
+                long fileSize,
+                boolean irisIncluded,
+                int adminAvatarCount,
+                int studentAvatarCount,
+                List<String> warnings
+        ) {
+            this.success = success;
+            this.message = message;
+            this.destinationUri = destinationUri;
+            this.fileSize = fileSize;
+            this.irisIncluded = irisIncluded;
+            this.adminAvatarCount = adminAvatarCount;
+            this.studentAvatarCount = studentAvatarCount;
+            this.warnings = warnings == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(warnings);
+        }
+
+        static ExportResult success(
+                Uri uri,
+                long fileSize,
+                boolean irisIncluded,
+                int adminCount,
+                int studentCount,
+                List<String> warnings
+        ) {
+            return new ExportResult(
+                    true,
+                    "Export thành công.",
+                    uri,
+                    fileSize,
+                    irisIncluded,
+                    adminCount,
+                    studentCount,
+                    warnings
+            );
+        }
+
+        static ExportResult failure(String message) {
+            return new ExportResult(
+                    false,
+                    message,
+                    null,
+                    0,
+                    false,
+                    0,
+                    0,
+                    null
+            );
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public Uri getDestinationUri() {
+            return destinationUri;
+        }
+
+        public long getFileSize() {
+            return fileSize;
+        }
+
+        public boolean isIrisIncluded() {
+            return irisIncluded;
+        }
+
+        public int getAdminAvatarCount() {
+            return adminAvatarCount;
+        }
+
+        public int getStudentAvatarCount() {
+            return studentAvatarCount;
+        }
+
+        public List<String> getWarnings() {
+            return new ArrayList<>(warnings);
         }
     }
 }
