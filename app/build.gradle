@@ -113,9 +113,7 @@ dependencies {
     //implementation project(path: ':secretkeygenerator')
 
     implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-    implementation 'com.google.code.gson:gson:2.2.4'
     implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.0.0'
-    implementation 'com.google.code.gson:gson:2.2.4'
 
     // InstanceID
     implementation 'com.google.android.gms:play-services-gcm:17.0.0'

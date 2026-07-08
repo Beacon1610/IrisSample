@@ -1,4 +1,4 @@
-student_id,full_name,phone,email,photo_path
+student_id,full_name,phone,email,password,photo_path
 SV001,Nguyễn Văn A,0123456789,nguyenvana@example.com,123456,
 SV002,Trần Thị B,0987654321,tranthib@example.com,123456,
 SV003,Lê Văn C,0912345678,levanc@example.com,123456,

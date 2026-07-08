@@ -9,7 +9,6 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
-import android.os.Environment;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -66,7 +65,6 @@ public class StudentListActivity extends AppCompatActivity {
     private String selectedLateCutoffTime = "08:10";
 
     private int mResultCode;
-    private static final int PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE = 100;
     private static final int REQUEST_IRIS_PERMISSIONS = 101;
 
     private Intent pendingIrisIntent;
@@ -1109,127 +1107,6 @@ protected void onActivityResult(int requestCode, int resultCode, @Nullable Inten
         }
     }
 
-    private void exportAttendanceToCSV() {
-        if (!checkStoragePermission()) {
-            return;
-        }
-
-        if (currentSubjectId == null) {
-            Toast.makeText(this, "Không tìm thấy thông tin môn học", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        try {
-            SQLiteDatabase db = dbHelper.getReadableDatabase();
-            
-            // Get subject name
-            String subjectName = "";
-            Cursor subjectCursor = db.rawQuery(
-                "SELECT " + DatabaseHelper.COL_SUBJECT_NAME + 
-                " FROM " + DatabaseHelper.TABLE_SUBJECTS + 
-                " WHERE " + DatabaseHelper.COL_SUBJECT_ID + " = ?",
-                new String[]{currentSubjectId}
-            );
-            if (subjectCursor.moveToFirst()) {
-                subjectName = subjectCursor.getString(0);
-            }
-            subjectCursor.close();
-
-            // Query attendance data with student names
-            String query = "SELECT s." + DatabaseHelper.COL_STUDENT_ID + ", " +
-                    "s." + DatabaseHelper.COL_FULL_NAME + ", " +
-                    "ch." + DatabaseHelper.COL_CHECKIN_DATE + ", " +
-                    "ch." + DatabaseHelper.COL_CHECKIN_TIME + " " +
-                    "FROM " + DatabaseHelper.TABLE_CHECKIN_HISTORY + " ch " +
-                    "JOIN " + DatabaseHelper.TABLE_STUDENTS + " s ON ch." + DatabaseHelper.COL_STUDENT_ID + " = s." + DatabaseHelper.COL_STUDENT_ID + " " +
-                    "WHERE ch." + DatabaseHelper.COL_SUBJECT_ID + " = ? " +
-                    "ORDER BY ch." + DatabaseHelper.COL_CHECKIN_DATE + " DESC, ch." + DatabaseHelper.COL_CHECKIN_TIME + " DESC";
-
-            Cursor cursor = db.rawQuery(query, new String[]{currentSubjectId});
-
-            // Create CSV content
-            StringBuilder csv = new StringBuilder();
-            csv.append("Mã sinh viên,Họ và tên,Ngày điểm danh,Giờ điểm danh\n");
-
-            if (cursor.moveToFirst()) {
-                do {
-                    String studentId = cursor.getString(0);
-                    String fullName = cursor.getString(1);
-                    String checkinDate = cursor.getString(2);
-                    String checkinTime = cursor.getString(3);
-                    
-                    // Escape commas and quotes in CSV
-                    csv.append(escapeCsvField(studentId)).append(",");
-                    csv.append(escapeCsvField(fullName)).append(",");
-                    csv.append(escapeCsvField(checkinDate)).append(",");
-                    csv.append(escapeCsvField(checkinTime)).append("\n");
-                } while (cursor.moveToNext());
-            } else {
-                csv.append("Chưa có dữ liệu điểm danh\n");
-            }
-            cursor.close();
-
-            // Save to Downloads folder
-            String fileName = "DiemDanh_" + subjectName.replaceAll("[^a-zA-Z0-9]", "_") + "_" + 
-                    System.currentTimeMillis() + ".csv";
-            
-            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            File csvFile = new File(downloadsDir, fileName);
-
-            try (FileOutputStream fos = new FileOutputStream(csvFile)) {
-                fos.write(csv.toString().getBytes("UTF-8"));
-                fos.flush();
-                Toast.makeText(this, "Đã xuất file CSV thành công!\n" + csvFile.getAbsolutePath(), 
-                        Toast.LENGTH_LONG).show();
-            } catch (IOException e) {
-                Toast.makeText(this, "Lỗi khi lưu file CSV: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                e.printStackTrace();
-            }
-
-        } catch (Exception e) {
-            Toast.makeText(this, "Lỗi khi xuất CSV: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-            e.printStackTrace();
-        }
-    }
-
-    private String escapeCsvField(String field) {
-        if (field == null) return "";
-        // If field contains comma, quote, or newline, wrap in quotes and escape quotes
-        if (field.contains(",") || field.contains("\"") || field.contains("\n")) {
-            return "\"" + field.replace("\"", "\"\"") + "\"";
-        }
-        return field;
-    }
-
-    private boolean checkStoragePermission() {
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
-                new AlertDialog.Builder(StudentListActivity.this)
-                        .setTitle("Cần quyền lưu trữ")
-                        .setMessage("Ứng dụng cần quyền lưu trữ để xuất file CSV.")
-                        .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which) {
-                                ActivityCompat.requestPermissions(StudentListActivity.this,
-                                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                                        PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
-                            }
-                        })
-                        .show();
-            } else {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                        PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
-            }
-            return false;
-        }
-        return true;
-    }
-
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -1250,13 +1127,6 @@ protected void onActivityResult(int requestCode, int resultCode, @Nullable Inten
                         Toast.LENGTH_LONG).show();
             }
             return;
-        }
-        if (requestCode == PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                exportAttendanceToCSV();
-            } else {
-                Toast.makeText(this, "Cần quyền lưu trữ để xuất file CSV", Toast.LENGTH_SHORT).show();
-            }
         }
     }
 }

@@ -220,11 +220,17 @@ public class MockCheckinActivity extends AppCompatActivity {
             currentTime = timeFormat.format(new Date());
         }
 
+        dbHelper.updateSessionLateCutoffTime(
+                selectedSubjectId,
+                currentDate,
+                selectedLateCutoffTime
+        );
+
         boolean inserted = dbHelper.insertDailyCheckinIfAbsent(
                 studentId,
                 selectedSubjectId,
                 currentDate,
-                selectedLateCutoffTime
+                currentTime
         );
 
         if (inserted){
@@ -282,11 +288,17 @@ public class MockCheckinActivity extends AppCompatActivity {
     private void checkinStudentWithTime(StudentInfo student, int position, String time) {
         String currentDate = dateFormat.format(new Date());
 
+        dbHelper.updateSessionLateCutoffTime(
+                selectedSubjectId,
+                currentDate,
+                selectedLateCutoffTime
+        );
+
         boolean inserted = dbHelper.insertDailyCheckinIfAbsent(
                 student.studentId,
                 selectedSubjectId,
                 currentDate,
-                selectedLateCutoffTime
+                time
         );
 
         if (inserted){

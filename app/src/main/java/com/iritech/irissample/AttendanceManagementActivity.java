@@ -1,16 +1,13 @@
 package com.iritech.irissample;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.DatePickerDialog;
 import android.content.ContentValues;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Patterns;
@@ -28,7 +25,6 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -59,11 +55,10 @@ import java.util.TimeZone;
  * Activity quản lý xuất CSV và gửi email báo cáo điểm danh
  * - Tab 1: Xuất CSV
  * - Tab 2: Quản lý email recipients và gửi email
- * - Tab 3: Xem điểm danh (NEW)
+ * - Tab 3: Xem điểm danh
  */
 public class AttendanceManagementActivity extends AppCompatActivity {
 
-    private static final int REQUEST_CODE_STORAGE_PERMISSION = 200;
     private static final int REQUEST_CODE_IMPORT_EMAIL_CSV = 300;
     private static final int REQUEST_CODE_IMPORT_ATTENDANCE_CSV = 400;
     private static final int REQUEST_CODE_CREATE_CSV_DOCUMENT = 500;
@@ -89,7 +84,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private TextView textSelectedCount, textEmptyEmailList;
     private RecyclerView recyclerEmailList;
 
-    // View Tab (NEW)
+    // View Tab
     private EditText editSearchStudent;
     private Button btnSelectDate, btnFilterAll, btnFilterAttended, btnFilterNotAttended, btnImportCsvView;
     private Button btnStatsByDate, btnStatsByStudent;
@@ -179,7 +174,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         textEmptyEmailList = findViewById(R.id.textEmptyEmailList);
         recyclerEmailList = findViewById(R.id.recyclerEmailList);
 
-        // View tab (NEW)
+        // View tab
         editSearchStudent = findViewById(R.id.editSearchStudent);
         btnSelectDate = findViewById(R.id.btnSelectDate);
         btnFilterAll = findViewById(R.id.btnFilterAll);
@@ -244,7 +239,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             }
         });
 
-        // View Tab Setup (NEW)
+        // View Tab Setup
         setupViewTab();
     }
 
@@ -370,7 +365,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         countCursor.close();
     }
 
-    // ==================== VIEW TAB FUNCTIONS (NEW) ====================
+    // ==================== VIEW TAB FUNCTIONS ====================
 
     private String getTodayDate() {
         Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
@@ -901,19 +896,6 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         pendingCsvContent = null;
     }
 
-    private boolean checkStoragePermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                Manifest.permission.READ_EXTERNAL_STORAGE},
-                    REQUEST_CODE_STORAGE_PERMISSION);
-            return false;
-        }
-        return true;
-    }
-
     // ==================== EMAIL MANAGEMENT FUNCTIONS ====================
 
     private void loadEmailRecipients() {
@@ -1173,16 +1155,4 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        if (requestCode == REQUEST_CODE_STORAGE_PERMISSION) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                exportAttendanceToCSV();
-            } else {
-                Toast.makeText(this, "Cần quyền truy cập lưu trữ để xuất CSV", Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
 }
