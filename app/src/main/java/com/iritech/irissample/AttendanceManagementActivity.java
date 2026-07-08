@@ -32,10 +32,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.iritech.irissample.adapter.AttendanceRecordAdapter;
 import com.iritech.irissample.adapter.EmailRecipientAdapter;
 import com.iritech.irissample.adapter.StudentAttendanceStatsAdapter;
+import com.iritech.irissample.export.AttendanceExportRepository;
+import com.iritech.irissample.export.AttendanceExportService;
 import com.iritech.irissample.model.AttendanceRecord;
 import com.iritech.irissample.model.EmailRecipient;
 import com.iritech.irissample.model.StudentAttendanceStats;
 import com.iritech.irissample.adapter.StudentAttendanceDetailAdapter;
+import com.iritech.irissample.model.export.AttendanceExportData;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -108,6 +111,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
 
     // Data
     private DatabaseHelper dbHelper;
+    private AttendanceExportService attendanceExportService;
     private String currentSubjectId;
     private String currentSubjectName;
     private EmailRecipientAdapter emailAdapter;
@@ -128,6 +132,9 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         }
 
         dbHelper = new DatabaseHelper(this);
+        attendanceExportService = new AttendanceExportService(
+                new AttendanceExportRepository(dbHelper)
+        );
         attendanceList = new ArrayList<>();
         filteredAttendanceList = new ArrayList<>();
         studentAttendanceStatsList = new ArrayList<>();
@@ -702,94 +709,13 @@ public class AttendanceManagementActivity extends AppCompatActivity {
 
     private void exportAttendanceToCSV() {
         try {
-            SQLiteDatabase db = dbHelper.getReadableDatabase();
-
-            // Lấy thông tin môn học + giảng viên cho header CSV
-            String instructorName = "";
-            Cursor subjectCursor = db.rawQuery(
-                "SELECT sub." + DatabaseHelper.COL_SUBJECT_NAME + ", " +
-                "adm." + DatabaseHelper.COL_ADMIN_FULL_NAME + " " +
-                "FROM " + DatabaseHelper.TABLE_SUBJECTS + " sub " +
-                "LEFT JOIN " + DatabaseHelper.TABLE_ADMIN + " adm ON sub." +
-                DatabaseHelper.COL_SUBJECT_INSTRUCTOR_ID + " = adm." + DatabaseHelper.COL_ADMIN_ID + " " +
-                "WHERE sub." + DatabaseHelper.COL_SUBJECT_ID + " = ?",
-                new String[]{currentSubjectId}
-            );
-            if (subjectCursor.moveToFirst()) {
-                instructorName = subjectCursor.getString(1) != null ? subjectCursor.getString(1) : "Chưa phân công";
-            }
-            subjectCursor.close();
-
+            AttendanceExportData exportData =
+                    attendanceExportService.loadExportData(currentSubjectId);
             String exportDate = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(new Date());
-
-            // Query theo class_sessions để export cả các buổi vắng, tránh lệch thống kê.
-            String query = "SELECT s." + DatabaseHelper.COL_STUDENT_ID + ", " +
-                    "s." + DatabaseHelper.COL_FULL_NAME + ", " +
-                    "cs." + DatabaseHelper.COL_SESSION_DATE + ", " +
-                    "fc.first_checkin_time, " +
-                    "cs." + DatabaseHelper.COL_LATE_CUTOFF_TIME + " " +
-                    "FROM " + DatabaseHelper.TABLE_ENROLLMENTS + " e " +
-                    "JOIN " + DatabaseHelper.TABLE_STUDENTS + " s ON e." + DatabaseHelper.COL_STUDENT_ID +
-                    " = s." + DatabaseHelper.COL_STUDENT_ID + " " +
-                    "JOIN " + DatabaseHelper.TABLE_CLASS_SESSIONS + " cs ON " +
-                    "cs." + DatabaseHelper.COL_SUBJECT_ID + " = e." + DatabaseHelper.COL_SUBJECT_ID + " " +
-                    "LEFT JOIN (" +
-                    "SELECT " + DatabaseHelper.COL_STUDENT_ID + ", " +
-                    DatabaseHelper.COL_SUBJECT_ID + ", " +
-                    DatabaseHelper.COL_CHECKIN_DATE + ", " +
-                    "MIN(" + DatabaseHelper.COL_CHECKIN_TIME + ") AS first_checkin_time " +
-                    "FROM " + DatabaseHelper.TABLE_CHECKIN_HISTORY + " " +
-                    "GROUP BY " + DatabaseHelper.COL_STUDENT_ID + ", " +
-                    DatabaseHelper.COL_SUBJECT_ID + ", " +
-                    DatabaseHelper.COL_CHECKIN_DATE +
-                    ") fc ON fc." + DatabaseHelper.COL_STUDENT_ID + " = s." + DatabaseHelper.COL_STUDENT_ID + " AND " +
-                    "fc." + DatabaseHelper.COL_SUBJECT_ID + " = e." + DatabaseHelper.COL_SUBJECT_ID + " AND " +
-                    "fc." + DatabaseHelper.COL_CHECKIN_DATE + " = cs." + DatabaseHelper.COL_SESSION_DATE + " " +
-                    "WHERE e." + DatabaseHelper.COL_SUBJECT_ID + " = ? " +
-                    "ORDER BY s." + DatabaseHelper.COL_STUDENT_ID + " ASC, " +
-                    "cs." + DatabaseHelper.COL_SESSION_DATE + " IS NULL, " +
-                    "substr(cs." + DatabaseHelper.COL_SESSION_DATE + ", 7, 4) || '-' || " +
-                    "substr(cs." + DatabaseHelper.COL_SESSION_DATE + ", 4, 2) || '-' || " +
-                    "substr(cs." + DatabaseHelper.COL_SESSION_DATE + ", 1, 2) ASC";
-            Cursor cursor = db.rawQuery(query, new String[]{currentSubjectId});
-
-            StringBuilder csv = new StringBuilder();
-            csv.append("\uFEFF"); // UTF-8 BOM
-            // Thông tin môn học ở đầu file
-            csv.append("Thông tin môn học\n");
-            csv.append("Mã môn,").append(escapeCsvField(currentSubjectId)).append("\n");
-            csv.append("Tên môn,").append(escapeCsvField(currentSubjectName)).append("\n");
-            csv.append("Giảng viên,").append(escapeCsvField(instructorName)).append("\n");
-            csv.append("Ngày xuất,").append(escapeCsvField(exportDate)).append("\n");
-            csv.append("\n"); // Dòng trống ngăn cách
-            csv.append("Mã sinh viên,Họ và tên,Ngày học,Giờ điểm danh,Mốc muộn,Trạng thái\n");
-
-            if (cursor.moveToFirst()) {
-                do {
-                    String studentId = cursor.getString(0);
-                    String fullName = cursor.getString(1);
-                    String sessionDate = cursor.isNull(2) ? "" : cursor.getString(2);
-                    String checkinTime = cursor.isNull(3) ? "" : cursor.getString(3);
-                    String lateCutoffTime = cursor.isNull(4) ? "" : cursor.getString(4);
-                    String status = buildAttendanceStatusText(checkinTime, lateCutoffTime);
-
-                    csv.append(escapeCsvField(studentId)).append(",");
-                    csv.append(escapeCsvField(fullName)).append(",");
-                    csv.append(escapeCsvField(sessionDate)).append(",");
-                    csv.append(escapeCsvField(checkinTime)).append(",");
-                    csv.append(escapeCsvField(lateCutoffTime)).append(",");
-                    csv.append(escapeCsvField(status)).append("\n");
-                } while (cursor.moveToNext());
-            } else {
-                csv.append("Chưa có dữ liệu sinh viên/buổi học để xuất\n");
-            }
-            cursor.close();
-
-            pendingCsvContent = csv.toString();
+            pendingCsvContent = attendanceExportService.buildCsv(exportData, exportDate);
 
             // Lưu 1 bản vào cache dir cho tính năng gửi email
-            String fileName = "DiemDanh_" + currentSubjectName.replaceAll("[^a-zA-Z0-9]", "_") + "_" +
-                    System.currentTimeMillis() + ".csv";
+            String fileName = attendanceExportService.buildCsvFileName(exportData);
             try {
                 File cacheFile = new File(getCacheDir(), fileName);
                 try (FileOutputStream fos = new FileOutputStream(cacheFile)) {
@@ -814,14 +740,6 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         }
     }
 
-    private String escapeCsvField(String field) {
-        if (field == null) return "";
-        if (field.contains(",") || field.contains("\"") || field.contains("\n")) {
-            return "\"" + field.replace("\"", "\"\"") + "\"";
-        }
-        return field;
-    }
-
     private boolean isNonEmptyCsvValue(String value) {
         return value != null
                 && !value.trim().isEmpty()
@@ -837,16 +755,6 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         return normalized.equals("vắng")
                 || normalized.equals("vang")
                 || normalized.equals("absent");
-    }
-
-    private String buildAttendanceStatusText(String checkinTime, String lateCutoffTime) {
-        if (!isNonEmptyCsvValue(checkinTime)) {
-            return "Vắng";
-        }
-
-        return DatabaseHelper.isLate(checkinTime, lateCutoffTime)
-                ? "Đi muộn"
-                : "Có mặt";
     }
 
     private List<String> parseCsvLine(String line) {
