@@ -5,13 +5,19 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+
+import com.iritech.irissample.model.AttendanceRecord;
+import com.iritech.irissample.model.StudentAttendanceStats;
+
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
 
    public static final String DATABASE_NAME = "attendance.db";
-    public static final int DATABASE_VERSION = 21; // Version 19: Xóa eye_photo_path, đơn giản hóa schema
+    public static final int DATABASE_VERSION = 24; // Version 19: Xóa eye_photo_path, đơn giản hóa schema
     public static int getCurrentDatabaseVersion() {
         return DATABASE_VERSION;
     }
@@ -71,7 +77,12 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     public static final String COL_CHECKIN_ID = "checkin_id";
     public static final String COL_CHECKIN_TIME = "checkin_time";
     public static final String COL_CHECKIN_DATE = "checkin_date"; // Ngày điểm danh để biết điểm danh ngày nào
-    
+    // Bảng CLASS_SESSIONS - mỗi dòng là một buổi học thật của môn
+    public static final String TABLE_CLASS_SESSIONS = "class_sessions";
+    public static final String COL_SESSION_ID = "session_id";
+    public static final String COL_SESSION_DATE = "session_date";
+    public static final String COL_SESSION_CREATED_AT = "created_at";
+    public static final String COL_LATE_CUTOFF_TIME = "late_cutoff_time";
     // Bảng EMAIL_RECIPIENTS - Lưu danh sách email nhận báo cáo điểm danh (per-subject)
     public static final String TABLE_EMAIL_RECIPIENTS = "email_recipients";
     public static final String COL_EMAIL_ID = "email_id";
@@ -87,6 +98,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     @Override
     public void onCreate(SQLiteDatabase db){
         createMissingTables(db);
+        createUniqueCheckinIndex(db);
     }
     private  static  void createMissingTables(SQLiteDatabase db) {
         String createAdminTable = "CREATE TABLE IF NOT EXISTS " + TABLE_ADMIN + " (" +
@@ -151,7 +163,16 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                         TABLE_STUDENTS + "(" + COL_STUDENT_ID + "), " +
                         "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " +
                         TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + "))";
-
+        String createClassSessionsTable =
+                "CREATE TABLE IF NOT EXISTS " + TABLE_CLASS_SESSIONS + " (" +
+                        COL_SESSION_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        COL_SUBJECT_ID + " TEXT NOT NULL, " +
+                        COL_SESSION_DATE + " TEXT NOT NULL, " +
+                        COL_LATE_CUTOFF_TIME + " TEXT, " +
+                        COL_SESSION_CREATED_AT + " TEXT, " +
+                        "UNIQUE(" + COL_SUBJECT_ID + ", " + COL_SESSION_DATE + "), " +
+                        "FOREIGN KEY(" + COL_SUBJECT_ID + ") REFERENCES " +
+                        TABLE_SUBJECTS + "(" + COL_SUBJECT_ID + ") ON DELETE CASCADE)";
         String createEmailRecipientsTable =
                 "CREATE TABLE IF NOT EXISTS " + TABLE_EMAIL_RECIPIENTS + " (" +
                         COL_EMAIL_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -169,6 +190,24 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         db.execSQL(createEnrollmentsTable);
         db.execSQL(createCheckinHistoryTable);
         db.execSQL(createEmailRecipientsTable);
+        db.execSQL(createClassSessionsTable);
+    }private static void seedClassSessionsFromExistingCheckins(SQLiteDatabase db) {
+        db.execSQL(
+                "INSERT OR IGNORE INTO " + TABLE_CLASS_SESSIONS + " (" +
+                        COL_SUBJECT_ID + ", " +
+                        COL_SESSION_DATE + ", " +
+                        COL_SESSION_CREATED_AT + ") " +
+                        "SELECT " +
+                        COL_SUBJECT_ID + ", " +
+                        COL_CHECKIN_DATE + ", " +
+                        "datetime('now') " +
+                        "FROM " + TABLE_CHECKIN_HISTORY + " " +
+                        "WHERE " + COL_SUBJECT_ID + " IS NOT NULL " +
+                        "AND TRIM(" + COL_SUBJECT_ID + ") != '' " +
+                        "AND " + COL_CHECKIN_DATE + " IS NOT NULL " +
+                        "AND TRIM(" + COL_CHECKIN_DATE + ") != '' " +
+                        "GROUP BY " + COL_SUBJECT_ID + ", " + COL_CHECKIN_DATE
+        );
     }
     private  static void addMissingColumnsForVersion21(SQLiteDatabase db) {
         addColumnIfMissing(db, TABLE_ADMIN, COL_ADMIN_DOB, "TEXT");
@@ -205,6 +244,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
         addColumnIfMissing(db, TABLE_CHECKIN_HISTORY,
                 COL_CHECKIN_DATE, "TEXT");
+        addColumnIfMissing(db, TABLE_CLASS_SESSIONS, COL_LATE_CUTOFF_TIME, "TEXT");
     }
 
     private  static void addColumnIfMissing(
@@ -279,7 +319,9 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         try {
             createMissingTables(database);
             addMissingColumnsForVersion21(database);
-
+            seedClassSessionsFromExistingCheckins(database);
+            removeDuplicateCheckins(database);
+            createUniqueCheckinIndex(database);
             // Chỉ đặt version sau khi toàn bộ migration thành công.
             database.setVersion(DATABASE_VERSION);
             database.setTransactionSuccessful();
@@ -297,8 +339,312 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     ) {
         createMissingTables(db);
         addMissingColumnsForVersion21(db);
+        seedClassSessionsFromExistingCheckins(db);
+        removeDuplicateCheckins(db);
+        createUniqueCheckinIndex(db);
+    }
+    public boolean insertDailyCheckinIfAbsent(
+            String studentId,
+            String subjectId,
+            String checkinDate,
+            String checkinTime
+    ) {
+        if (studentId == null || studentId.trim().isEmpty()
+                || subjectId == null || subjectId.trim().isEmpty()
+                || checkinDate == null || checkinDate.trim().isEmpty()) {
+            return false;
+        }
+
+        ContentValues values = new ContentValues();
+        values.put(COL_STUDENT_ID, studentId);
+        values.put(COL_SUBJECT_ID, subjectId);
+        values.put(COL_CHECKIN_DATE, checkinDate);
+        values.put(COL_CHECKIN_TIME, checkinTime);
+
+        ensureClassSession(subjectId, checkinDate);
+
+        long rowId = getWritableDatabase().insertWithOnConflict(
+                TABLE_CHECKIN_HISTORY,
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_IGNORE
+        );
+
+        return rowId != -1;
+    }
+    private static void removeDuplicateCheckins(SQLiteDatabase db) {
+        db.execSQL(
+                "DELETE FROM " + TABLE_CHECKIN_HISTORY + " " +
+                        "WHERE " + COL_CHECKIN_ID + " NOT IN (" +
+                        "SELECT MIN(" + COL_CHECKIN_ID + ") " +
+                        "FROM " + TABLE_CHECKIN_HISTORY + " " +
+                        "WHERE " + COL_STUDENT_ID + " IS NOT NULL " +
+                        "AND TRIM(" + COL_STUDENT_ID + ") != '' " +
+                        "AND " + COL_SUBJECT_ID + " IS NOT NULL " +
+                        "AND TRIM(" + COL_SUBJECT_ID + ") != '' " +
+                        "AND " + COL_CHECKIN_DATE + " IS NOT NULL " +
+                        "AND TRIM(" + COL_CHECKIN_DATE + ") != '' " +
+                        "GROUP BY " + COL_STUDENT_ID + ", " +
+                        COL_SUBJECT_ID + ", " +
+                        COL_CHECKIN_DATE + ") " +
+                        "AND " + COL_STUDENT_ID + " IS NOT NULL " +
+                        "AND TRIM(" + COL_STUDENT_ID + ") != '' " +
+                        "AND " + COL_SUBJECT_ID + " IS NOT NULL " +
+                        "AND TRIM(" + COL_SUBJECT_ID + ") != '' " +
+                        "AND " + COL_CHECKIN_DATE + " IS NOT NULL " +
+                        "AND TRIM(" + COL_CHECKIN_DATE + ") != ''"
+        );
+    }
+    private static void createUniqueCheckinIndex(SQLiteDatabase db) {
+        db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_daily_checkin " +
+                        "ON " + TABLE_CHECKIN_HISTORY + " (" +
+                        COL_STUDENT_ID + ", " +
+                        COL_SUBJECT_ID + ", " +
+                        COL_CHECKIN_DATE + ")"
+        );
+    }
+    public int getTotalStudentsBySubject(String subjectId) {
+        if (subjectId == null || subjectId.trim().isEmpty()) {
+            return 0;
+        }
+
+        String query = "SELECT COUNT(DISTINCT e." + COL_STUDENT_ID + ") " +
+                "FROM " + TABLE_ENROLLMENTS + " e " +
+                "WHERE e." + COL_SUBJECT_ID + " = ?";
+
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                query,
+                new String[]{subjectId}
+        )) {
+            return cursor.moveToFirst() ? cursor.getInt(0) : 0;
+        }
     }
 
+    /**
+     * Số sinh viên có ít nhất một lần điểm danh trong ngày đã chọn.
+     * COUNT DISTINCT tránh đếm trùng nếu một sinh viên check-in nhiều lần.
+     */
+    public int getPresentCountBySubjectAndDate(String subjectId, String date) {
+        if (subjectId == null || subjectId.trim().isEmpty()
+                || date == null || date.trim().isEmpty()) {
+            return 0;
+        }
+
+        String query = "SELECT COUNT(DISTINCT ch." + COL_STUDENT_ID + ") " +
+                "FROM " + TABLE_CHECKIN_HISTORY + " ch " +
+                "INNER JOIN " + TABLE_ENROLLMENTS + " e ON " +
+                "e." + COL_STUDENT_ID + " = ch." + COL_STUDENT_ID + " AND " +
+                "e." + COL_SUBJECT_ID + " = ch." + COL_SUBJECT_ID + " " +
+                "WHERE ch." + COL_SUBJECT_ID + " = ? AND " +
+                "ch." + COL_CHECKIN_DATE + " = ?";
+
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                query,
+                new String[]{subjectId, date}
+        )) {
+            return cursor.moveToFirst() ? cursor.getInt(0) : 0;
+        }
+    }
+
+    public int getAbsentCountBySubjectAndDate(String subjectId, String date) {
+        int total = getTotalStudentsBySubject(subjectId);
+        int present = getPresentCountBySubjectAndDate(subjectId, date);
+        return Math.max(0, total - present);
+    }
+
+    /**
+     * Lấy toàn bộ sinh viên của môn trong một query. LEFT JOIN giữ lại sinh
+     * viên vắng mặt; GROUP BY gom nhiều lần check-in trong cùng ngày và MIN
+     * lấy thời gian check-in đầu tiên.
+     */
+    public List<AttendanceRecord> getAttendanceRecordsBySubjectAndDate(
+            String subjectId,
+            String date
+    ) {
+        List<AttendanceRecord> records = new ArrayList<>();
+        if (subjectId == null || subjectId.trim().isEmpty()
+                || date == null || date.trim().isEmpty()) {
+            return records;
+        }
+
+        String query = "SELECT s." + COL_STUDENT_ID + ", " +
+                "s." + COL_FULL_NAME + ", " +
+                "CASE WHEN COUNT(ch." + COL_CHECKIN_ID + ") > 0 THEN 1 ELSE 0 END, " +
+                "COALESCE(MAX(ch." + COL_CHECKIN_DATE + "), cs." + COL_SESSION_DATE + "), " +
+                "MIN(ch." + COL_CHECKIN_TIME + "), " +
+                "MAX(cs." + COL_LATE_CUTOFF_TIME + ") " +
+                "FROM " + TABLE_ENROLLMENTS + " e " +
+                "INNER JOIN " + TABLE_STUDENTS + " s ON " +
+                "s." + COL_STUDENT_ID + " = e." + COL_STUDENT_ID + " " +
+                "LEFT JOIN " + TABLE_CLASS_SESSIONS + " cs ON " +
+                "cs." + COL_SUBJECT_ID + " = e." + COL_SUBJECT_ID + " AND " +
+                "cs." + COL_SESSION_DATE + " = ? " +
+                "LEFT JOIN " + TABLE_CHECKIN_HISTORY + " ch ON " +
+                "ch." + COL_STUDENT_ID + " = e." + COL_STUDENT_ID + " AND " +
+                "ch." + COL_SUBJECT_ID + " = e." + COL_SUBJECT_ID + " AND " +
+                "ch." + COL_CHECKIN_DATE + " = ? " +
+                "WHERE e." + COL_SUBJECT_ID + " = ? " +
+                "GROUP BY s." + COL_STUDENT_ID + ", s." + COL_FULL_NAME + ", " +
+                "cs." + COL_SESSION_DATE + ", cs." + COL_LATE_CUTOFF_TIME + " " +
+                "ORDER BY s." + COL_FULL_NAME + " COLLATE NOCASE, " +
+                "s." + COL_STUDENT_ID;
+
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                query,
+                new String[]{date, date, subjectId}
+        )) {
+            while (cursor.moveToNext()) {
+                boolean attended = cursor.getInt(2) == 1;
+                String checkinDate = cursor.isNull(3) ? date : cursor.getString(3);
+                String checkinTime = cursor.isNull(4) ? null : cursor.getString(4);
+                String lateCutoffTime = cursor.isNull(5) ? null : cursor.getString(5);
+                String attendanceStatus = AttendanceRecord.STATUS_ABSENT;
+
+                if (attended) {
+                    attendanceStatus = isLate(checkinTime, lateCutoffTime)
+                            ? AttendanceRecord.STATUS_LATE
+                            : AttendanceRecord.STATUS_PRESENT;
+                }
+
+                records.add(new AttendanceRecord(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        attendanceStatus,
+                        checkinDate,
+                        checkinTime,
+                        lateCutoffTime
+                ));
+            }
+        }
+
+        return records;
+    }
+
+    /**
+     * Thống kê chuyên cần của toàn bộ sinh viên trong môn. Subquery totals chỉ
+     * tính tổng số ngày học một lần; LEFT JOIN vẫn trả sinh viên chưa từng
+     * điểm danh.
+     */
+    public List<StudentAttendanceStats> getStudentAttendanceStatsBySubject(
+            String subjectId
+    ) {
+        List<StudentAttendanceStats> stats = new ArrayList<>();
+        if (subjectId == null || subjectId.trim().isEmpty()) {
+            return stats;
+        }
+        String query = "SELECT s." + COL_STUDENT_ID + ", " +
+                "s." + COL_FULL_NAME + ", " +
+                "COUNT(DISTINCT cs." + COL_SESSION_DATE + "), " +
+                "COUNT(DISTINCT CASE WHEN fc.checkin_count > 0 " +
+                "THEN cs." + COL_SESSION_DATE + " END), " +
+                "COUNT(DISTINCT CASE WHEN fc.checkin_count > 0 " +
+                "AND fc.first_checkin_time IS NOT NULL " +
+                "AND cs." + COL_LATE_CUTOFF_TIME + " IS NOT NULL " +
+                "AND TRIM(cs." + COL_LATE_CUTOFF_TIME + ") != '' " +
+                "AND substr(fc.first_checkin_time, 1, 5) > substr(cs." + COL_LATE_CUTOFF_TIME + ", 1, 5) " +
+                "THEN cs." + COL_SESSION_DATE + " END) " +
+                "FROM " + TABLE_ENROLLMENTS + " e " +
+                "INNER JOIN " + TABLE_STUDENTS + " s ON " +
+                "s." + COL_STUDENT_ID + " = e." + COL_STUDENT_ID + " " +
+                "LEFT JOIN " + TABLE_CLASS_SESSIONS + " cs ON " +
+                "cs." + COL_SUBJECT_ID + " = e." + COL_SUBJECT_ID + " " +
+                "LEFT JOIN (" +
+                "SELECT " + COL_STUDENT_ID + ", " +
+                COL_SUBJECT_ID + ", " +
+                COL_CHECKIN_DATE + ", " +
+                "COUNT(*) AS checkin_count, " +
+                "MIN(" + COL_CHECKIN_TIME + ") AS first_checkin_time " +
+                "FROM " + TABLE_CHECKIN_HISTORY + " " +
+                "GROUP BY " + COL_STUDENT_ID + ", " +
+                COL_SUBJECT_ID + ", " +
+                COL_CHECKIN_DATE +
+                ") fc ON fc." + COL_STUDENT_ID + " = s." + COL_STUDENT_ID + " AND " +
+                "fc." + COL_SUBJECT_ID + " = e." + COL_SUBJECT_ID + " AND " +
+                "fc." + COL_CHECKIN_DATE + " = cs." + COL_SESSION_DATE + " " +
+                "WHERE e." + COL_SUBJECT_ID + " = ? " +
+                "GROUP BY s." + COL_STUDENT_ID + ", s." + COL_FULL_NAME + " " +
+                "ORDER BY s." + COL_FULL_NAME + " COLLATE NOCASE, " +
+                "s." + COL_STUDENT_ID;
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                query,
+                new String[]{subjectId}
+        )) {
+            while (cursor.moveToNext()) {
+                stats.add(new StudentAttendanceStats(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        cursor.getInt(2),
+                        cursor.getInt(3),
+                        cursor.getInt(4)
+                ));
+            }
+        }
+
+        return stats;
+    }
+    public List<AttendanceRecord> getStudentAttendanceDetailsBySubject(
+            String subjectId,
+            String studentId,
+            String studentName
+    ) {
+        List<AttendanceRecord> records = new ArrayList<>();
+
+        if (subjectId == null || subjectId.trim().isEmpty()
+                || studentId == null || studentId.trim().isEmpty()) {
+            return records;
+        }
+
+        String query = "SELECT cs." + COL_SESSION_DATE + ", " +
+                "fc.first_checkin_time, " +
+                "cs." + COL_LATE_CUTOFF_TIME + " " +
+                "FROM " + TABLE_CLASS_SESSIONS + " cs " +
+                "LEFT JOIN (" +
+                "SELECT " + COL_STUDENT_ID + ", " +
+                COL_SUBJECT_ID + ", " +
+                COL_CHECKIN_DATE + ", " +
+                "MIN(" + COL_CHECKIN_TIME + ") AS first_checkin_time " +
+                "FROM " + TABLE_CHECKIN_HISTORY + " " +
+                "GROUP BY " + COL_STUDENT_ID + ", " +
+                COL_SUBJECT_ID + ", " +
+                COL_CHECKIN_DATE +
+                ") fc ON fc." + COL_STUDENT_ID + " = ? AND " +
+                "fc." + COL_SUBJECT_ID + " = cs." + COL_SUBJECT_ID + " AND " +
+                "fc." + COL_CHECKIN_DATE + " = cs." + COL_SESSION_DATE + " " +
+                "WHERE cs." + COL_SUBJECT_ID + " = ? " +
+                "ORDER BY substr(cs." + COL_SESSION_DATE + ", 7, 4) || '-' || " +
+                "substr(cs." + COL_SESSION_DATE + ", 4, 2) || '-' || " +
+                "substr(cs." + COL_SESSION_DATE + ", 1, 2)";
+
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                query,
+                new String[]{studentId, subjectId}
+        )) {
+            while (cursor.moveToNext()) {
+                String sessionDate = cursor.getString(0);
+                String checkinTime = cursor.isNull(1) ? null : cursor.getString(1);
+                String lateCutoffTime = cursor.isNull(2) ? null : cursor.getString(2);
+
+                String status = AttendanceRecord.STATUS_ABSENT;
+                if (checkinTime != null && !checkinTime.trim().isEmpty()) {
+                    status = isLate(checkinTime, lateCutoffTime)
+                            ? AttendanceRecord.STATUS_LATE
+                            : AttendanceRecord.STATUS_PRESENT;
+                }
+
+                records.add(new AttendanceRecord(
+                        studentId,
+                        studentName,
+                        status,
+                        sessionDate,
+                        checkinTime,
+                        lateCutoffTime
+                ));
+            }
+        }
+
+        return records;
+    }
     /**
      * Hash password using SHA-256
      * @param password Plain text password
@@ -1068,6 +1414,110 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                 new java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault());
 
         return dateFormat.format(calendar.getTime());
+
+    }
+    public boolean ensureClassSession(String subjectId, String sessionDate) {
+        return ensureClassSession(subjectId, sessionDate, null);
+    }
+
+    public boolean ensureClassSession(
+            String subjectId,
+            String sessionDate,
+            String lateCutoffTime
+    ) {
+        if (subjectId == null || subjectId.trim().isEmpty()
+                || sessionDate == null || sessionDate.trim().isEmpty()) {
+            return false;
+        }
+
+        ContentValues values = new ContentValues();
+        values.put(COL_SUBJECT_ID, subjectId);
+        values.put(COL_SESSION_DATE, sessionDate);
+        values.put(
+                COL_SESSION_CREATED_AT,
+                new java.text.SimpleDateFormat(
+                        "yyyy-MM-dd HH:mm:ss",
+                        java.util.Locale.getDefault()
+                ).format(new java.util.Date())
+        );
+
+        if (lateCutoffTime != null && !lateCutoffTime.trim().isEmpty()) {
+            values.put(COL_LATE_CUTOFF_TIME, lateCutoffTime.trim());
+        }
+
+        long rowId = getWritableDatabase().insertWithOnConflict(
+                TABLE_CLASS_SESSIONS,
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_IGNORE
+        );
+
+        if (rowId != -1) {
+            return true;
+        }
+
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                "SELECT 1 FROM " + TABLE_CLASS_SESSIONS +
+                        " WHERE " + COL_SUBJECT_ID + " = ? AND " +
+                        COL_SESSION_DATE + " = ? LIMIT 1",
+                new String[]{subjectId, sessionDate}
+        )) {
+            return cursor.moveToFirst();
+        }
+    }
+    public boolean updateSessionLateCutoffTime(
+            String subjectId,
+            String sessionDate,
+            String lateCutoffTime
+    ) {
+        ensureClassSession(subjectId, sessionDate, lateCutoffTime);
+
+        ContentValues values = new ContentValues();
+        values.put(COL_LATE_CUTOFF_TIME, lateCutoffTime);
+
+        int rows = getWritableDatabase().update(
+                TABLE_CLASS_SESSIONS,
+                values,
+                COL_SUBJECT_ID + " = ? AND " + COL_SESSION_DATE + " = ?",
+                new String[]{subjectId, sessionDate}
+        );
+
+        return rows > 0;
+    }
+    public String getSessionLateCutoffTime(String subjectId, String sessionDate) {
+        String query = "SELECT " + COL_LATE_CUTOFF_TIME +
+                " FROM " + TABLE_CLASS_SESSIONS +
+                " WHERE " + COL_SUBJECT_ID + " = ? AND " +
+                COL_SESSION_DATE + " = ?";
+
+        try (Cursor cursor = getReadableDatabase().rawQuery(
+                query,
+                new String[]{subjectId, sessionDate}
+        )) {
+            if (cursor.moveToFirst()) {
+                return cursor.isNull(0) ? null : cursor.getString(0);
+            }
+        }
+
+        return null;
+    }
+    public static boolean isLate(String checkinTime, String lateCutoffTime) {
+        if (checkinTime == null || checkinTime.trim().isEmpty()
+                || lateCutoffTime == null || lateCutoffTime.trim().isEmpty()) {
+            return false;
+        }
+
+        String checkinHHmm = checkinTime.trim();
+        if (checkinHHmm.length() >= 5) {
+            checkinHHmm = checkinHHmm.substring(0, 5);
+        }
+
+        String cutoffHHmm = lateCutoffTime.trim();
+        if (cutoffHHmm.length() >= 5) {
+            cutoffHHmm = cutoffHHmm.substring(0, 5);
+        }
+
+        return checkinHHmm.compareTo(cutoffHHmm) > 0;
     }
     /**
      * Hàm 2: Lấy danh sách khuôn mặt của TẤT CẢ sinh viên

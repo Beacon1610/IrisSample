@@ -3,6 +3,7 @@ package com.iritech.irissample;
 import android.content.Intent;
 import android.Manifest;
 import android.app.AlertDialog;
+import android.app.TimePickerDialog;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -19,6 +20,7 @@ import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.widget.SwitchCompat;
@@ -58,6 +60,10 @@ public class StudentListActivity extends AppCompatActivity {
     private String  selectedStudentId = null;
     private String pendingFaceStudentId = null;
     private String currentSubjectId = null;
+    private String currentSubjectName = "";
+    private String currentSubjectTimeSlot = "";
+    private String currentInstructorName = "";
+    private String selectedLateCutoffTime = "08:10";
 
     private int mResultCode;
     private static final int PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE = 100;
@@ -69,6 +75,11 @@ public class StudentListActivity extends AppCompatActivity {
     ListView listViewStudents;
     EditText edtSearch;
     SwitchCompat switchFilterAttendance;
+    TextView textHeaderSubjectName;
+    TextView textHeaderSubjectCode;
+    TextView textHeaderSubjectTime;
+    TextView textHeaderSubjectInstructor;
+    Button btnHeaderLateCutoff;
     DatabaseHelper dbHelper;
     ArrayList<String> studentList = new ArrayList<>();
     ArrayList<String> studentIds = new ArrayList<>();
@@ -92,10 +103,18 @@ public class StudentListActivity extends AppCompatActivity {
         listViewStudents = findViewById(R.id.listViewStudents);
         edtSearch = findViewById(R.id.edtSearch);
         switchFilterAttendance = findViewById(R.id.switchFilterAttendance);
+        textHeaderSubjectName = findViewById(R.id.textHeaderSubjectName);
+        textHeaderSubjectCode = findViewById(R.id.textHeaderSubjectCode);
+        textHeaderSubjectTime = findViewById(R.id.textHeaderSubjectTime);
+        textHeaderSubjectInstructor = findViewById(R.id.textHeaderSubjectInstructor);
+        btnHeaderLateCutoff = findViewById(R.id.btnHeaderLateCutoff);
         dbHelper = new DatabaseHelper(this);
 
         // Get subject_id from the Intent
         currentSubjectId = getIntent().getStringExtra("subject_id");
+        loadSubjectQuickInfo();
+        loadLateCutoffForToday();
+        btnHeaderLateCutoff.setOnClickListener(v -> showLateCutoffTimePicker());
 
         // Load students for the selected subject
         loadStudentsForSubject(currentSubjectId);
@@ -150,6 +169,154 @@ public class StudentListActivity extends AppCompatActivity {
             }
         });
     }
+
+    private void loadSubjectQuickInfo() {
+        if (currentSubjectId == null || currentSubjectId.trim().isEmpty()) {
+            return;
+        }
+
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+        Cursor cursor = db.rawQuery(
+                "SELECT s." + DatabaseHelper.COL_SUBJECT_NAME + ", " +
+                        "s." + DatabaseHelper.COL_TIME_SLOT + ", " +
+                        "a." + DatabaseHelper.COL_ADMIN_FULL_NAME + " " +
+                        "FROM " + DatabaseHelper.TABLE_SUBJECTS + " s " +
+                        "LEFT JOIN " + DatabaseHelper.TABLE_ADMIN + " a ON " +
+                        "s." + DatabaseHelper.COL_SUBJECT_INSTRUCTOR_ID + " = a." +
+                        DatabaseHelper.COL_ADMIN_ID + " " +
+                        "WHERE s." + DatabaseHelper.COL_SUBJECT_ID + " = ?",
+                new String[]{currentSubjectId}
+        );
+
+        if (cursor.moveToFirst()) {
+            currentSubjectName = cursor.isNull(0) ? "" : cursor.getString(0);
+            currentSubjectTimeSlot = cursor.isNull(1) ? "" : cursor.getString(1);
+            currentInstructorName = cursor.isNull(2) ? "Chưa phân công" : cursor.getString(2);
+        }
+        cursor.close();
+
+        textHeaderSubjectName.setText(isBlank(currentSubjectName)
+                ? "Môn học"
+                : currentSubjectName);
+        textHeaderSubjectCode.setText("Mã: " + currentSubjectId);
+        textHeaderSubjectTime.setText("Giờ: " + (isBlank(currentSubjectTimeSlot)
+                ? "Chưa đặt"
+                : currentSubjectTimeSlot));
+        textHeaderSubjectInstructor.setText("GV: " + (isBlank(currentInstructorName)
+                ? "Chưa phân công"
+                : currentInstructorName));
+    }
+
+    private void loadLateCutoffForToday() {
+        if (currentSubjectId == null || currentSubjectId.trim().isEmpty()) {
+            return;
+        }
+
+        String today = getTodayDate();
+        String cutoff = dbHelper.getSessionLateCutoffTime(currentSubjectId, today);
+
+        if (isBlank(cutoff)) {
+            cutoff = getDefaultLateCutoffTime();
+        }
+
+        selectedLateCutoffTime = cutoff;
+        updateLateCutoffButton();
+    }
+
+    private void showLateCutoffTimePicker() {
+        String[] parts = selectedLateCutoffTime.split(":");
+        int hour = 8;
+        int minute = 10;
+
+        if (parts.length >= 2) {
+            try {
+                hour = Integer.parseInt(parts[0]);
+                minute = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        TimePickerDialog dialog = new TimePickerDialog(
+                this,
+                (view, selectedHour, selectedMinute) -> {
+                    String cutoff = String.format(
+                            Locale.getDefault(),
+                            "%02d:%02d",
+                            selectedHour,
+                            selectedMinute
+                    );
+
+                    selectedLateCutoffTime = cutoff;
+                    updateLateCutoffButton();
+                    dbHelper.updateSessionLateCutoffTime(
+                            currentSubjectId,
+                            getTodayDate(),
+                            cutoff
+                    );
+
+                    Toast.makeText(
+                            this,
+                            "Đã đặt mốc điểm danh hôm nay: " + cutoff,
+                            Toast.LENGTH_SHORT
+                    ).show();
+                },
+                hour,
+                minute,
+                true
+        );
+
+        dialog.show();
+    }
+
+    private void updateLateCutoffButton() {
+        btnHeaderLateCutoff.setText("Mốc: " + selectedLateCutoffTime);
+    }
+
+    private String getTodayDate() {
+        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
+        SimpleDateFormat dateFormat = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault());
+        return dateFormat.format(calendar.getTime());
+    }
+
+    private String getDefaultLateCutoffTime() {
+        String timeFromSubject = getLateCutoffFromSubjectTimeSlot();
+        return isBlank(timeFromSubject) ? "08:10" : timeFromSubject;
+    }
+
+    private String getLateCutoffFromSubjectTimeSlot() {
+        if (isBlank(currentSubjectTimeSlot)) {
+            return null;
+        }
+
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(\\d{1,2}):(\\d{2})")
+                .matcher(currentSubjectTimeSlot);
+
+        if (!matcher.find()) {
+            return null;
+        }
+
+        int hour;
+        int minute;
+        try {
+            hour = Integer.parseInt(matcher.group(1));
+            minute = Integer.parseInt(matcher.group(2));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+
+        minute += 10;
+        hour += minute / 60;
+        minute = minute % 60;
+        hour = hour % 24;
+
+        return String.format(Locale.getDefault(), "%02d:%02d", hour, minute);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
     private void showIdentifyOptionsDialog() {
 
         String[] options = {"Điểm danh bằng mật khẩu", "Điểm danh bằng mống mắt", "Điểm danh bằng Face ID"};
@@ -673,14 +840,28 @@ public class StudentListActivity extends AppCompatActivity {
         String currentTime = timeFormat.format(calendar.getTime());
         String currentDate = dateFormat.format(calendar.getTime());
 
-        // Insert vào checkin_history với checkin_date
-        String query = "INSERT INTO " + DatabaseHelper.TABLE_CHECKIN_HISTORY + " (" +
-                DatabaseHelper.COL_STUDENT_ID + ", " +
-                DatabaseHelper.COL_SUBJECT_ID + ", " +
-                DatabaseHelper.COL_CHECKIN_TIME + ", " +
-                DatabaseHelper.COL_CHECKIN_DATE + ") VALUES (?, ?, ?, ?)";
+        if (isBlank(selectedLateCutoffTime)) {
+            selectedLateCutoffTime = getDefaultLateCutoffTime();
+            updateLateCutoffButton();
+        }
 
-        db.execSQL(query, new Object[]{studentId, currentSubjectId, currentTime, currentDate});
+        dbHelper.updateSessionLateCutoffTime(
+                currentSubjectId,
+                currentDate,
+                selectedLateCutoffTime
+        );
+
+        boolean inserted = dbHelper.insertDailyCheckinIfAbsent(
+                studentId,
+                currentSubjectId,
+                currentDate,
+                currentTime
+        );
+
+        if (!inserted) {
+            Toast.makeText(this, "Sinh viên đã điểm danh hôm nay", Toast.LENGTH_SHORT).show();
+            return;
+        }
         
         // Get student name from database
         String studentName = "";

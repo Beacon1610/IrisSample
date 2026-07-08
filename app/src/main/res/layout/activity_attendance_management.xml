@@ -64,43 +64,43 @@
         android:paddingBottom="4dp">
 
         <Button
+            android:id="@+id/btnTabView"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="2dp"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:text="Thống kê"
+            android:textAllCaps="false"
+            android:textColor="@color/colorPrimaryDark"
+            android:textSize="12sp" />
+
+        <Button
             android:id="@+id/btnTabExport"
             android:layout_width="0dp"
             android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:layout_weight="1"
-            android:text="Xuất dữ liệu"
-            android:textSize="12sp"
-            android:textAllCaps="false"
-            android:textColor="@color/colorPrimaryDark"
             android:background="@android:color/transparent"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="2dp" />
+            android:text="Xuất dữ liệu"
+            android:textAllCaps="false"
+            android:textColor="@color/colorTextSecondary"
+            android:textSize="12sp" />
 
         <Button
             android:id="@+id/btnTabEmail"
             android:layout_width="0dp"
             android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="4dp"
             android:layout_weight="1"
+            android:background="@android:color/transparent"
             android:text="Gửi email"
-            android:textSize="12sp"
             android:textAllCaps="false"
             android:textColor="@color/colorTextSecondary"
-            android:background="@android:color/transparent"
-            android:layout_marginStart="2dp"
-            android:layout_marginEnd="2dp" />
-
-        <Button
-            android:id="@+id/btnTabView"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:text="Xem chi tiết"
-            android:textSize="12sp"
-            android:textAllCaps="false"
-            android:textColor="@color/colorTextSecondary"
-            android:background="@android:color/transparent"
-            android:layout_marginStart="2dp"
-            android:layout_marginEnd="4dp" />
+            android:textSize="12sp" />
     </LinearLayout>
 
     <!-- ==================== TAB XUẤT DỮ LIỆU ==================== -->
@@ -352,131 +352,394 @@
         </LinearLayout>
     </ScrollView>
 
-    <!-- ==================== TAB XEM CHI TIẾT ==================== -->
+    <!-- ==================== TAB THỐNG KÊ ĐIỂM DANH ==================== -->
     <LinearLayout
         android:id="@+id/layoutViewTab"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="10dp"
         android:visibility="gone">
 
-        <!-- Bộ lọc -->
+        <!-- Chuyển chế độ thống kê -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginBottom="10dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnStatsByDate"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:background="@drawable/button_primary"
+                android:text="Theo ngày"
+                android:textAllCaps="false"
+                android:textColor="@android:color/white"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btnStatsByStudent"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:background="@drawable/button_secondary"
+                android:text="Theo sinh viên"
+                android:textAllCaps="false"
+                android:textColor="@color/colorPrimaryDark"
+                android:textSize="13sp" />
+        </LinearLayout>
+        <androidx.coordinatorlayout.widget.CoordinatorLayout
+            android:id="@+id/layoutDailyStatistics"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <com.google.android.material.appbar.AppBarLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                app:elevation="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    app:layout_scrollFlags="scroll|enterAlways">
+
+        <!-- Tiêu đề và chọn ngày -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="0dp"
+            android:layout_marginBottom="10dp"
+            app:cardBackgroundColor="@color/colorCard"
+            app:cardCornerRadius="14dp"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/colorCard">
+            app:contentPadding="12dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:padding="2dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="THỐNG KÊ ĐIỂM DANH"
+                    android:textColor="@color/colorPrimaryDark"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
                     android:orientation="horizontal"
-                    android:layout_marginBottom="8dp">
+                    android:gravity="center_vertical">
 
-                    <EditText
-                        android:id="@+id/editSearchStudent"
+                    <TextView
                         android:layout_width="0dp"
-                        android:layout_height="40dp"
+                        android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:background="@drawable/edit_text_background"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:textSize="13sp"
-                        android:textColor="@color/colorTextPrimary"
-                        android:hint="Tìm sinh viên..."
-                        android:textColorHint="@color/colorTextHint"
-                        android:inputType="text"
-                        android:singleLine="true"
-                        android:layout_marginEnd="8dp" />
+                        android:text="Ngày thống kê"
+                        android:textColor="@color/colorTextSecondary"
+                        android:textSize="13sp" />
 
                     <Button
                         android:id="@+id/btnSelectDate"
                         android:layout_width="wrap_content"
                         android:layout_height="40dp"
-                        android:text="Chọn ngày"
-                        android:textSize="12sp"
-                        android:textAllCaps="false"
-                        android:textColor="@color/colorPrimaryDark"
                         android:background="@drawable/button_secondary"
                         android:paddingStart="12dp"
-                        android:paddingEnd="12dp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/btnFilterAll"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="Tất cả"
-                        android:textSize="12sp"
-                        android:textAllCaps="false"
-                        android:textColor="@android:color/white"
-                        android:background="@drawable/button_primary"
-                        android:layout_marginEnd="4dp" />
-
-                    <Button
-                        android:id="@+id/btnFilterAttended"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="Có mặt"
-                        android:textSize="12sp"
+                        android:paddingEnd="12dp"
+                        android:text="Chọn ngày"
                         android:textAllCaps="false"
                         android:textColor="@color/colorPrimaryDark"
-                        android:background="@drawable/button_secondary"
-                        android:layout_marginStart="4dp"
-                        android:layout_marginEnd="4dp" />
-
-                    <Button
-                        android:id="@+id/btnFilterNotAttended"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="Vắng mặt"
-                        android:textSize="12sp"
-                        android:textAllCaps="false"
-                        android:textColor="@color/colorPrimaryDark"
-                        android:background="@drawable/button_secondary"
-                        android:layout_marginStart="4dp"
-                        android:layout_marginEnd="4dp" />
+                        android:textSize="12sp" />
 
                     <Button
                         android:id="@+id/btnImportCsvView"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/button_secondary"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
                         android:text="Nhập CSV"
-                        android:textSize="12sp"
                         android:textAllCaps="false"
                         android:textColor="@color/colorPrimaryDark"
-                        android:background="@drawable/button_secondary"
-                        android:layout_marginStart="4dp" />
+                        android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Thống kê -->
-        <TextView
-            android:id="@+id/textViewStats"
+        <!-- Ba thẻ tổng quan -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="74dp"
+            android:layout_marginBottom="10dp"
+            android:orientation="horizontal">
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                app:cardBackgroundColor="@color/cardAccentBlue"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/textTotalStudents"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="@color/colorInfo"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        tools:text="40" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Tổng SV"
+                        android:textColor="@color/colorTextSecondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                app:cardBackgroundColor="@color/cardAccentGreen"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/textPresentStudents"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="@color/colorSuccess"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        tools:text="32" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Có mặt"
+                        android:textColor="@color/colorTextSecondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                app:cardBackgroundColor="@color/cardAccentRed"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/textAbsentStudents"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="@color/colorError"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        tools:text="8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Vắng"
+                        android:textColor="@color/colorTextSecondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+
+        <!-- Biểu đồ và tỷ lệ -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="150dp"
+            android:layout_marginBottom="10dp"
+            app:cardBackgroundColor="@color/colorCard"
+            app:cardCornerRadius="14dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="12dp">
+
+                <com.iritech.irissample.AttendancePieChartView
+                    android:id="@+id/attendancePieChart"
+                    android:layout_width="126dp"
+                    android:layout_height="126dp"
+                    android:contentDescription="Biểu đồ tỷ lệ có mặt và vắng mặt" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/textViewStats"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Tỷ lệ điểm danh: 0%"
+                        android:textColor="@color/colorPrimaryDark"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        tools:text="Tỷ lệ điểm danh: 80%" />
+
+                    <ProgressBar
+                        android:id="@+id/progressAttendanceRate"
+                        style="@android:style/Widget.ProgressBar.Horizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="10dp"
+                        android:layout_marginTop="8dp"
+                        android:max="100"
+                        android:progress="0"
+                        android:progressBackgroundTint="@color/colorDivider"
+                        android:progressTint="@color/colorSuccess"
+                        tools:progress="80" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="● Có mặt"
+                            android:textColor="@color/colorSuccess"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="● Vắng"
+                            android:textColor="@color/colorError"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+                </LinearLayout>
+            </com.google.android.material.appbar.AppBarLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <!-- Tìm kiếm và bộ lọc -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="12dp"
-            android:background="@color/cardAccentTeal"
-            android:textSize="13sp"
-            android:textColor="@color/colorPrimaryDark"
-            android:text="Thống kê điểm danh" />
+            android:background="@color/colorBackground"
+            android:layout_marginBottom="8dp"
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/editSearchStudent"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/edit_text_background"
+                android:hint="Tìm theo mã hoặc tên sinh viên..."
+                android:inputType="text"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true"
+                android:textColor="@color/colorTextPrimary"
+                android:textColorHint="@color/colorTextHint"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnFilterAll"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:background="@drawable/button_primary"
+                        android:text="Tất cả"
+                        android:textAllCaps="false"
+                        android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btnFilterAttended"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp"
+                    android:background="@drawable/button_secondary"
+                        android:text="Có mặt"
+                        android:textAllCaps="false"
+                        android:textColor="@color/colorPrimaryDark"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btnFilterNotAttended"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/button_secondary"
+                        android:text="Vắng"
+                        android:textAllCaps="false"
+                        android:textColor="@color/colorPrimaryDark"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
 
         <!-- Danh sách điểm danh -->
         <FrameLayout
@@ -488,9 +751,7 @@
                 android:id="@+id/recyclerAttendanceList"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
                 android:clipToPadding="false"
                 android:scrollbars="vertical" />
 
@@ -504,6 +765,77 @@
                 android:textColor="@color/colorTextHint"
                 android:visibility="gone" />
         </FrameLayout>
+
+            </LinearLayout>
+
+        </androidx.coordinatorlayout.widget.CoordinatorLayout>
+        <!-- Thống kê tổng hợp theo từng sinh viên -->
+        <LinearLayout
+            android:id="@+id/layoutStudentStatistics"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/cardAccentTeal"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="CHUYÊN CẦN THEO SINH VIÊN"
+                        android:textColor="@color/colorPrimaryDark"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/textTotalAttendanceSessions"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="5dp"
+                        android:text="Tổng số buổi học: 0"
+                        android:textColor="@color/colorTextSecondary"
+                        android:textSize="13sp"
+                        tools:text="Tổng số buổi học: 10" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/recyclerStudentAttendanceStats"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingBottom="8dp"
+                    android:scrollbars="vertical" />
+
+                <TextView
+                    android:id="@+id/textEmptyStudentAttendanceStats"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="Môn học chưa có sinh viên"
+                    android:textColor="@color/colorTextHint"
+                    android:textSize="15sp"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

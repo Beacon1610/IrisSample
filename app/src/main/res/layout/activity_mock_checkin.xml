@@ -69,6 +69,32 @@
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
                 android:layout_marginBottom="12dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Mốc tính đi muộn"
+                android:textSize="13sp"
+                android:textColor="@color/colorTextSecondary"
+                android:layout_marginBottom="4dp" />
+
+            <Button
+                android:id="@+id/btnLateCutoffTime"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/button_secondary"
+                android:text="08:10"
+                android:textAllCaps="false"
+                android:textColor="@color/colorPrimaryDark"
+                android:textSize="14sp"
+                android:layout_marginBottom="6dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Sinh viên check-in sau mốc này sẽ được tính là đi muộn"
+                android:textColor="@color/colorTextHint"
+                android:textSize="12sp"
+                android:layout_marginBottom="12dp" />
 
             <CheckBox
                 android:id="@+id/chkUseCustomTime"

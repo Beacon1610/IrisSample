@@ -16,6 +16,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.text.InputType;
 import androidx.appcompat.app.AppCompatActivity;
+import android.app.TimePickerDialog;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -34,6 +35,8 @@ public class MockCheckinActivity extends AppCompatActivity {
     private Spinner spinnerSubject;
     private ListView listViewStudents;
     private Button btnCheckinAll;
+    private Button btnLateCutoffTime;
+    private String selectedLateCutoffTime = "08:10";
     private Button btnRandomCheckin;
     private CheckBox chkUseCustomTime;
     private EditText edtCustomTime;
@@ -46,7 +49,7 @@ public class MockCheckinActivity extends AppCompatActivity {
     
     private String selectedSubjectId;
 
-    private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+    private SimpleDateFormat dateFormat = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault());
     private SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
 
     // Class để lưu thông tin môn học
@@ -102,6 +105,9 @@ public class MockCheckinActivity extends AppCompatActivity {
         btnRandomCheckin = findViewById(R.id.btnRandomCheckin);
         chkUseCustomTime = findViewById(R.id.chkUseCustomTime);
         edtCustomTime = findViewById(R.id.edtCustomTime);
+        btnLateCutoffTime = findViewById(R.id.btnLateCutoffTime);
+        btnLateCutoffTime.setText(selectedLateCutoffTime);
+        btnLateCutoffTime.setOnClickListener(v -> showLateCutoffTimePicker());
         btnBack = findViewById(R.id.btnBack);
         btnClearToday = findViewById(R.id.btnClearToday);
 
@@ -150,6 +156,7 @@ public class MockCheckinActivity extends AppCompatActivity {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 selectedSubjectId = subjectList.get(position).id;
+                loadLateCutoffForToday();
                 loadStudents();
             }
 
@@ -212,23 +219,20 @@ public class MockCheckinActivity extends AppCompatActivity {
         } else {
             currentTime = timeFormat.format(new Date());
         }
-        
-        // Insert vào database đơn giản
-        SQLiteDatabase db = dbHelper.getWritableDatabase();
-        android.content.ContentValues values = new android.content.ContentValues();
-        values.put(DatabaseHelper.COL_STUDENT_ID, studentId);
-        values.put(DatabaseHelper.COL_SUBJECT_ID, selectedSubjectId);
-        values.put(DatabaseHelper.COL_CHECKIN_TIME, currentTime);
-        values.put(DatabaseHelper.COL_CHECKIN_DATE, currentDate);
-        
-        long rowId = db.insert(DatabaseHelper.TABLE_CHECKIN_HISTORY, null, values);
-        
-        if (rowId != -1) {
+
+        boolean inserted = dbHelper.insertDailyCheckinIfAbsent(
+                studentId,
+                selectedSubjectId,
+                currentDate,
+                selectedLateCutoffTime
+        );
+
+        if (inserted){
             Toast.makeText(this, studentName + " - Điểm danh lúc: " + currentTime, 
                           Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(this, "Lỗi khi điểm danh " + studentName, 
-                          Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, studentName + " đã điểm danh hôm nay",
+                    Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -277,18 +281,15 @@ public class MockCheckinActivity extends AppCompatActivity {
      */
     private void checkinStudentWithTime(StudentInfo student, int position, String time) {
         String currentDate = dateFormat.format(new Date());
-        
-        // Insert vào database đơn giản
-        SQLiteDatabase db = dbHelper.getWritableDatabase();
-        android.content.ContentValues values = new android.content.ContentValues();
-        values.put(DatabaseHelper.COL_STUDENT_ID, student.studentId);
-        values.put(DatabaseHelper.COL_SUBJECT_ID, selectedSubjectId);
-        values.put(DatabaseHelper.COL_CHECKIN_TIME, time);
-        values.put(DatabaseHelper.COL_CHECKIN_DATE, currentDate);
-        
-        long rowId = db.insert(DatabaseHelper.TABLE_CHECKIN_HISTORY, null, values);
-        
-        if (rowId != -1) {
+
+        boolean inserted = dbHelper.insertDailyCheckinIfAbsent(
+                student.studentId,
+                selectedSubjectId,
+                currentDate,
+                selectedLateCutoffTime
+        );
+
+        if (inserted){
             // Update student info
             student.checkedIn = true;
             student.checkinTime = time;
@@ -299,8 +300,8 @@ public class MockCheckinActivity extends AppCompatActivity {
             Toast.makeText(this, student.fullName + " - Điểm danh lúc: " + time, 
                           Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(this, "Lỗi khi điểm danh " + student.fullName, 
-                          Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, student.fullName + " đã điểm danh hôm nay",
+                    Toast.LENGTH_SHORT).show();
         }
     }
     
@@ -407,5 +408,65 @@ public class MockCheckinActivity extends AppCompatActivity {
             })
             .setNegativeButton("Hủy", null)
             .show();
+    }
+    private void loadLateCutoffForToday() {
+        if (selectedSubjectId == null) return;
+
+        String today = dateFormat.format(new Date());
+        String cutoff = dbHelper.getSessionLateCutoffTime(selectedSubjectId, today);
+
+        if (cutoff == null || cutoff.trim().isEmpty()) {
+            cutoff = selectedLateCutoffTime;
+            dbHelper.updateSessionLateCutoffTime(selectedSubjectId, today, cutoff);
+        }
+
+        selectedLateCutoffTime = cutoff;
+        btnLateCutoffTime.setText(selectedLateCutoffTime);
+    }
+    private void showLateCutoffTimePicker() {
+        String[] parts = selectedLateCutoffTime.split(":");
+        int hour = 8;
+        int minute = 10;
+
+        if (parts.length == 2) {
+            try {
+                hour = Integer.parseInt(parts[0]);
+                minute = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        TimePickerDialog dialog = new TimePickerDialog(
+                this,
+                (view, selectedHour, selectedMinute) -> {
+                    String cutoff = String.format(
+                            Locale.getDefault(),
+                            "%02d:%02d",
+                            selectedHour,
+                            selectedMinute
+                    );
+
+                    selectedLateCutoffTime = cutoff;
+                    btnLateCutoffTime.setText(cutoff);
+
+                    String today = dateFormat.format(new Date());
+                    dbHelper.updateSessionLateCutoffTime(
+                            selectedSubjectId,
+                            today,
+                            cutoff
+                    );
+
+                    Toast.makeText(
+                            this,
+                            "Đã đặt mốc đi muộn: " + cutoff,
+                            Toast.LENGTH_SHORT
+                    ).show();
+                },
+                hour,
+                minute,
+                true
+        );
+
+        dialog.show();
     }
 }

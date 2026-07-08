@@ -12,28 +12,103 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
         android:background="@drawable/gradient_background"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:paddingStart="20dp"
-        android:paddingEnd="20dp"
         android:paddingTop="16dp"
+        android:paddingEnd="20dp"
         android:paddingBottom="20dp">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Danh sách sinh viên"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            android:textColor="@android:color/white" />
+            android:layout_weight="1"
+            android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Danh sách sinh viên"
+                android:textColor="@android:color/white"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Quản lý thông tin sinh viên"
+                android:textColor="#B3FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/layoutSubjectQuickInfo"
+            android:layout_width="164dp"
             android:layout_height="wrap_content"
-            android:text="Quản lý thông tin sinh viên"
-            android:textSize="14sp"
-            android:textColor="#B3FFFFFF"
-            android:layout_marginTop="4dp" />
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_info_box"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <TextView
+                android:id="@+id/textHeaderSubjectName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/colorPrimaryDark"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                tools:text="An toàn thông tin" />
+
+            <TextView
+                android:id="@+id/textHeaderSubjectCode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/colorTextPrimary"
+                android:textSize="11sp"
+                tools:text="Mã: CS101" />
+
+            <TextView
+                android:id="@+id/textHeaderSubjectTime"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/colorTextPrimary"
+                android:textSize="11sp"
+                tools:text="Giờ: 07:00 - 09:00" />
+
+            <TextView
+                android:id="@+id/textHeaderSubjectInstructor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/colorTextSecondary"
+                android:textSize="11sp"
+                tools:text="GV: Nguyễn Văn A" />
+
+            <Button
+                android:id="@+id/btnHeaderLateCutoff"
+                android:layout_width="match_parent"
+                android:layout_height="32dp"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/button_secondary"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:text="Mốc: 08:10"
+                android:textAllCaps="false"
+                android:textColor="@color/colorPrimaryDark"
+                android:textSize="11sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Thanh tìm kiếm -->

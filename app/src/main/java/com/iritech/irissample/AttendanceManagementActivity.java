@@ -19,6 +19,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -34,8 +35,11 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.iritech.irissample.adapter.AttendanceRecordAdapter;
 import com.iritech.irissample.adapter.EmailRecipientAdapter;
+import com.iritech.irissample.adapter.StudentAttendanceStatsAdapter;
 import com.iritech.irissample.model.AttendanceRecord;
 import com.iritech.irissample.model.EmailRecipient;
+import com.iritech.irissample.model.StudentAttendanceStats;
+import com.iritech.irissample.adapter.StudentAttendanceDetailAdapter;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -63,6 +67,11 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private static final int REQUEST_CODE_IMPORT_EMAIL_CSV = 300;
     private static final int REQUEST_CODE_IMPORT_ATTENDANCE_CSV = 400;
     private static final int REQUEST_CODE_CREATE_CSV_DOCUMENT = 500;
+    private static final int FILTER_ALL = 0;
+    private static final int FILTER_PRESENT = 1;
+    private static final int FILTER_ABSENT = 2;
+    private static final int STATS_MODE_DAILY = 0;
+    private static final int STATS_MODE_STUDENT = 1;
 
     // UI Components - Tabs
     private Button btnTabExport, btnTabEmail, btnTabView;
@@ -83,13 +92,24 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     // View Tab (NEW)
     private EditText editSearchStudent;
     private Button btnSelectDate, btnFilterAll, btnFilterAttended, btnFilterNotAttended, btnImportCsvView;
+    private Button btnStatsByDate, btnStatsByStudent;
     private TextView textViewStats, textEmptyAttendanceList;
+    private TextView textTotalStudents, textPresentStudents, textAbsentStudents;
+    private TextView textTotalAttendanceSessions, textEmptyStudentAttendanceStats;
+    private ProgressBar progressAttendanceRate;
+    private AttendancePieChartView attendancePieChart;
+    private View layoutDailyStatistics;
+    private LinearLayout layoutStudentStatistics;
     private RecyclerView recyclerAttendanceList;
+    private RecyclerView recyclerStudentAttendanceStats;
     private AttendanceRecordAdapter attendanceAdapter;
+    private StudentAttendanceStatsAdapter studentAttendanceStatsAdapter;
     private List<AttendanceRecord> attendanceList;
     private List<AttendanceRecord> filteredAttendanceList;
-    private String selectedDate; // Format: dd/MM/yyyy, null = tất cả
-    private int currentFilter = 0; // 0 = all, 1 = attended, 2 = not attended
+    private List<StudentAttendanceStats> studentAttendanceStatsList;
+    private String selectedDate; // Format: dd/MM/yyyy
+    private int currentFilter = FILTER_ALL;
+    private int currentStatsMode = STATS_MODE_DAILY;
 
     // Data
     private DatabaseHelper dbHelper;
@@ -113,6 +133,10 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         }
 
         dbHelper = new DatabaseHelper(this);
+        attendanceList = new ArrayList<>();
+        filteredAttendanceList = new ArrayList<>();
+        studentAttendanceStatsList = new ArrayList<>();
+        selectedDate = getTodayDate();
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         toolbar.setTitle("Quản lý điểm danh");
@@ -124,12 +148,8 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         setupTabs();
         loadEmailRecipients();
 
-        // Init View Tab data
-        attendanceList = new ArrayList<>();
-        filteredAttendanceList = new ArrayList<>();
-        selectedDate = getTodayDate();
-
-        showTab(0); // Export tab by default
+        showTab(0);
+        reloadCurrentStatistics();
     }
 
     private void initViews() {
@@ -166,19 +186,31 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         btnFilterAttended = findViewById(R.id.btnFilterAttended);
         btnFilterNotAttended = findViewById(R.id.btnFilterNotAttended);
         btnImportCsvView = findViewById(R.id.btnImportCsvView);
+        btnStatsByDate = findViewById(R.id.btnStatsByDate);
+        btnStatsByStudent = findViewById(R.id.btnStatsByStudent);
         textViewStats = findViewById(R.id.textViewStats);
+        textTotalStudents = findViewById(R.id.textTotalStudents);
+        textPresentStudents = findViewById(R.id.textPresentStudents);
+        textAbsentStudents = findViewById(R.id.textAbsentStudents);
+        progressAttendanceRate = findViewById(R.id.progressAttendanceRate);
+        attendancePieChart = findViewById(R.id.attendancePieChart);
+        layoutDailyStatistics = findViewById(R.id.layoutDailyStatistics);
+        layoutStudentStatistics = findViewById(R.id.layoutStudentStatistics);
+        textTotalAttendanceSessions = findViewById(R.id.textTotalAttendanceSessions);
+        textEmptyStudentAttendanceStats = findViewById(R.id.textEmptyStudentAttendanceStats);
         textEmptyAttendanceList = findViewById(R.id.textEmptyAttendanceList);
         recyclerAttendanceList = findViewById(R.id.recyclerAttendanceList);
+        recyclerStudentAttendanceStats = findViewById(R.id.recyclerStudentAttendanceStats);
     }
 
     private void setupTabs() {
         // Tab clicks
-        btnTabExport.setOnClickListener(v -> showTab(0));
-        btnTabEmail.setOnClickListener(v -> showTab(1));
         btnTabView.setOnClickListener(v -> {
-            showTab(2);
-            loadAttendanceData();
+            showTab(0);
+            reloadCurrentStatistics();
         });
+        btnTabExport.setOnClickListener(v -> showTab(1));
+        btnTabEmail.setOnClickListener(v -> showTab(2));
 
         // Export button
         btnExportCsv.setOnClickListener(v -> exportAttendanceToCSV());
@@ -222,25 +254,36 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         recyclerAttendanceList.setLayoutManager(new LinearLayoutManager(this));
         recyclerAttendanceList.setAdapter(attendanceAdapter);
 
+        studentAttendanceStatsAdapter = new StudentAttendanceStatsAdapter(
+                this,
+                studentAttendanceStatsList,
+                this::showStudentAttendanceDetails
+        );
+        recyclerStudentAttendanceStats.setLayoutManager(new LinearLayoutManager(this));
+        recyclerStudentAttendanceStats.setAdapter(studentAttendanceStatsAdapter);
+
+        btnStatsByDate.setOnClickListener(v -> showStatisticsMode(STATS_MODE_DAILY));
+        btnStatsByStudent.setOnClickListener(v -> showStatisticsMode(STATS_MODE_STUDENT));
+
         // Date picker
-        btnSelectDate.setText("Hôm nay");
+        btnSelectDate.setText(selectedDate);
         btnSelectDate.setOnClickListener(v -> showDatePicker());
 
         // Filter buttons
         btnFilterAll.setOnClickListener(v -> {
-            currentFilter = 0;
+            currentFilter = FILTER_ALL;
             updateFilterButtons();
             applyFilters();
         });
 
         btnFilterAttended.setOnClickListener(v -> {
-            currentFilter = 1;
+            currentFilter = FILTER_PRESENT;
             updateFilterButtons();
             applyFilters();
         });
 
         btnFilterNotAttended.setOnClickListener(v -> {
-            currentFilter = 2;
+            currentFilter = FILTER_ABSENT;
             updateFilterButtons();
             applyFilters();
         });
@@ -263,16 +306,39 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         btnImportCsvView.setOnClickListener(v -> openAttendanceCsvPicker());
 
         updateFilterButtons();
+        updateStatisticsModeUi();
+    }
+
+    private void showStatisticsMode(int mode) {
+        currentStatsMode = mode;
+        updateStatisticsModeUi();
+        reloadCurrentStatistics();
+    }
+
+    private void updateStatisticsModeUi() {
+        boolean dailyMode = currentStatsMode == STATS_MODE_DAILY;
+        layoutDailyStatistics.setVisibility(dailyMode ? View.VISIBLE : View.GONE);
+        layoutStudentStatistics.setVisibility(dailyMode ? View.GONE : View.VISIBLE);
+        updateFilterButtonStyle(btnStatsByDate, dailyMode);
+        updateFilterButtonStyle(btnStatsByStudent, !dailyMode);
+    }
+
+    private void reloadCurrentStatistics() {
+        if (currentStatsMode == STATS_MODE_STUDENT) {
+            loadStudentAttendanceStats();
+        } else {
+            loadAttendanceData();
+        }
     }
 
     private void showTab(int tabIndex) {
-        layoutExportTab.setVisibility(tabIndex == 0 ? View.VISIBLE : View.GONE);
-        layoutEmailTab.setVisibility(tabIndex == 1 ? View.VISIBLE : View.GONE);
-        layoutViewTab.setVisibility(tabIndex == 2 ? View.VISIBLE : View.GONE);
+        layoutViewTab.setVisibility(tabIndex == 0 ? View.VISIBLE : View.GONE);
+        layoutExportTab.setVisibility(tabIndex == 1 ? View.VISIBLE : View.GONE);
+        layoutEmailTab.setVisibility(tabIndex == 2 ? View.VISIBLE : View.GONE);
 
-        btnTabExport.setAlpha(tabIndex == 0 ? 1.0f : 0.6f);
-        btnTabEmail.setAlpha(tabIndex == 1 ? 1.0f : 0.6f);
-        btnTabView.setAlpha(tabIndex == 2 ? 1.0f : 0.6f);
+        btnTabView.setAlpha(tabIndex == 0 ? 1.0f : 0.6f);
+        btnTabExport.setAlpha(tabIndex == 1 ? 1.0f : 0.6f);
+        btnTabEmail.setAlpha(tabIndex == 2 ? 1.0f : 0.6f);
     }
 
     private void loadSubjectInfo() {
@@ -315,105 +381,139 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private void showDatePicker() {
         Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
 
+        if (selectedDate != null) {
+            String[] dateParts = selectedDate.split("/");
+            if (dateParts.length == 3) {
+                try {
+                    calendar.set(
+                            Integer.parseInt(dateParts[2]),
+                            Integer.parseInt(dateParts[1]) - 1,
+                            Integer.parseInt(dateParts[0])
+                    );
+                } catch (NumberFormatException ignored) {
+                    // Giữ ngày hiện tại nếu dữ liệu ngày cũ không hợp lệ.
+                }
+            }
+        }
+
         DatePickerDialog dialog = new DatePickerDialog(this, (view, year, month, dayOfMonth) -> {
             selectedDate = String.format(Locale.getDefault(), "%02d/%02d/%04d", dayOfMonth, month + 1, year);
-            btnSelectDate.setText(selectedDate.substring(0, 5)); // dd/MM
+            btnSelectDate.setText(selectedDate);
             loadAttendanceData();
         }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH));
-
-        // Add "Tất cả" option
-        dialog.setButton(DatePickerDialog.BUTTON_NEUTRAL, "Tất cả", (d, which) -> {
-            selectedDate = null;
-            btnSelectDate.setText("Tất cả");
-            loadAttendanceData();
-        });
 
         dialog.show();
     }
 
     private void loadAttendanceData() {
         attendanceList.clear();
-        SQLiteDatabase db = dbHelper.getReadableDatabase();
-
-        // Get all students in this subject
-        String studentQuery = "SELECT s." + DatabaseHelper.COL_STUDENT_ID + ", s." + DatabaseHelper.COL_FULL_NAME +
-                " FROM " + DatabaseHelper.TABLE_STUDENTS + " s " +
-                " JOIN " + DatabaseHelper.TABLE_ENROLLMENTS + " e ON s." + DatabaseHelper.COL_STUDENT_ID +
-                " = e." + DatabaseHelper.COL_STUDENT_ID +
-                " WHERE e." + DatabaseHelper.COL_SUBJECT_ID + " = ?" +
-                " ORDER BY s." + DatabaseHelper.COL_FULL_NAME;
-
-        Cursor studentCursor = db.rawQuery(studentQuery, new String[]{currentSubjectId});
-
-        if (studentCursor.moveToFirst()) {
-            do {
-                String studentId = studentCursor.getString(0);
-                String fullName = studentCursor.getString(1);
-
-                // Check attendance for this student
-                String attendanceQuery;
-                String[] args;
-
-                if (selectedDate != null) {
-                    // Specific date
-                    attendanceQuery = "SELECT " + DatabaseHelper.COL_CHECKIN_DATE + ", " + DatabaseHelper.COL_CHECKIN_TIME +
-                            " FROM " + DatabaseHelper.TABLE_CHECKIN_HISTORY +
-                            " WHERE " + DatabaseHelper.COL_STUDENT_ID + " = ? AND " +
-                            DatabaseHelper.COL_SUBJECT_ID + " = ? AND " +
-                            DatabaseHelper.COL_CHECKIN_DATE + " = ?" +
-                            " ORDER BY " + DatabaseHelper.COL_CHECKIN_TIME + " DESC LIMIT 1";
-                    args = new String[]{studentId, currentSubjectId, selectedDate};
-                } else {
-                    // All dates - get latest
-                    attendanceQuery = "SELECT " + DatabaseHelper.COL_CHECKIN_DATE + ", " + DatabaseHelper.COL_CHECKIN_TIME +
-                            " FROM " + DatabaseHelper.TABLE_CHECKIN_HISTORY +
-                            " WHERE " + DatabaseHelper.COL_STUDENT_ID + " = ? AND " +
-                            DatabaseHelper.COL_SUBJECT_ID + " = ?" +
-                            " ORDER BY " + DatabaseHelper.COL_CHECKIN_DATE + " DESC, " +
-                            DatabaseHelper.COL_CHECKIN_TIME + " DESC LIMIT 1";
-                    args = new String[]{studentId, currentSubjectId};
-                }
-
-                Cursor attendanceCursor = db.rawQuery(attendanceQuery, args);
-
-                if (attendanceCursor.moveToFirst()) {
-                    String date = attendanceCursor.getString(0);
-                    String time = attendanceCursor.getString(1);
-                    attendanceList.add(new AttendanceRecord(studentId, fullName, true, date, time));
-                } else {
-                    attendanceList.add(new AttendanceRecord(studentId, fullName));
-                }
-                attendanceCursor.close();
-
-            } while (studentCursor.moveToNext());
-        }
-        studentCursor.close();
+        attendanceList.addAll(
+                dbHelper.getAttendanceRecordsBySubjectAndDate(
+                        currentSubjectId,
+                        selectedDate
+                )
+        );
 
         applyFilters();
+    }
+    private void showStudentAttendanceDetails(StudentAttendanceStats stats) {
+        if (stats == null) {
+            return;
+        }
+
+        List<AttendanceRecord> details = dbHelper.getStudentAttendanceDetailsBySubject(
+                currentSubjectId,
+                stats.getStudentId(),
+                stats.getStudentName()
+        );
+
+        if (details.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle(stats.getStudentName())
+                    .setMessage("Chưa có buổi học nào cho môn này")
+                    .setPositiveButton("Đóng", null)
+                    .show();
+            return;
+        }
+        RecyclerView recyclerView = new RecyclerView(this);
+        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+        recyclerView.setAdapter(new StudentAttendanceDetailAdapter(this, details));
+        recyclerView.setPadding(dpToPx(24), dpToPx(16), dpToPx(24), 0);
+        recyclerView.setClipToPadding(false);
+
+        int estimatedItemHeight = dpToPx(92);
+        int maxListHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.6f);
+        int listHeight = Math.min(maxListHeight, estimatedItemHeight * details.size());
+        recyclerView.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                Math.max(dpToPx(120), listHeight)
+        ));
+
+        new AlertDialog.Builder(this)
+                .setTitle(stats.getStudentName())
+                .setView(recyclerView)
+                .setPositiveButton("Đóng", null)
+                .show();
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private void loadStudentAttendanceStats() {
+        studentAttendanceStatsList.clear();
+        studentAttendanceStatsList.addAll(
+                dbHelper.getStudentAttendanceStatsBySubject(currentSubjectId)
+        );
+        studentAttendanceStatsAdapter.updateList(studentAttendanceStatsList);
+
+        boolean noStudents = studentAttendanceStatsList.isEmpty();
+        int totalSessions = noStudents
+                ? 0
+                : studentAttendanceStatsList.get(0).getTotalSessions();
+
+        textTotalAttendanceSessions.setText(
+                "Tổng số buổi học: " + totalSessions
+        );
+
+        boolean noRecordedSessions = !noStudents && totalSessions == 0;
+        boolean showEmpty = noStudents || noRecordedSessions;
+
+        recyclerStudentAttendanceStats.setVisibility(showEmpty ? View.GONE : View.VISIBLE);
+        textEmptyStudentAttendanceStats.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
+        textEmptyStudentAttendanceStats.setText(
+                noStudents
+                        ? "Môn học chưa có sinh viên"
+                        : "Chưa có dữ liệu điểm danh cho môn học này"
+        );
     }
 
     private void applyFilters() {
         filteredAttendanceList.clear();
-        String searchText = editSearchStudent.getText().toString().toLowerCase().trim();
+        String searchText = editSearchStudent.getText().toString()
+                .toLowerCase(Locale.getDefault())
+                .trim();
 
         for (AttendanceRecord record : attendanceList) {
             // Search filter
+            String studentId = record.getStudentId() == null ? "" : record.getStudentId();
+            String fullName = record.getFullName() == null ? "" : record.getFullName();
             boolean matchesSearch = searchText.isEmpty() ||
-                    record.getStudentId().toLowerCase().contains(searchText) ||
-                    record.getFullName().toLowerCase().contains(searchText);
+                    studentId.toLowerCase(Locale.getDefault()).contains(searchText) ||
+                    fullName.toLowerCase(Locale.getDefault()).contains(searchText);
 
             if (!matchesSearch) continue;
 
             // Status filter
             boolean matchesFilter = false;
             switch (currentFilter) {
-                case 0: // All
+                case FILTER_ALL:
                     matchesFilter = true;
                     break;
-                case 1: // Attended
+                case FILTER_PRESENT:
                     matchesFilter = record.isAttended();
                     break;
-                case 2: // Not attended
+                case FILTER_ABSENT:
                     matchesFilter = !record.isAttended();
                     break;
             }
@@ -429,26 +529,59 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     }
 
     private void updateFilterButtons() {
-        btnFilterAll.setAlpha(currentFilter == 0 ? 1.0f : 0.5f);
-        btnFilterAttended.setAlpha(currentFilter == 1 ? 1.0f : 0.5f);
-        btnFilterNotAttended.setAlpha(currentFilter == 2 ? 1.0f : 0.5f);
+        updateFilterButtonStyle(btnFilterAll, currentFilter == FILTER_ALL);
+        updateFilterButtonStyle(btnFilterAttended, currentFilter == FILTER_PRESENT);
+        updateFilterButtonStyle(btnFilterNotAttended, currentFilter == FILTER_ABSENT);
+    }
+
+    private void updateFilterButtonStyle(Button button, boolean selected) {
+        button.setAlpha(1f);
+        button.setBackgroundResource(
+                selected ? R.drawable.button_primary : R.drawable.button_secondary
+        );
+        button.setTextColor(ContextCompat.getColor(
+                this,
+                selected ? android.R.color.white : R.color.colorPrimaryDark
+        ));
     }
 
     private void updateStats() {
-        int total = attendanceList.size();
-        int attended = 0;
-        for (AttendanceRecord record : attendanceList) {
-            if (record.isAttended()) attended++;
-        }
+        int total = dbHelper.getTotalStudentsBySubject(currentSubjectId);
+        int attended = dbHelper.getPresentCountBySubjectAndDate(currentSubjectId, selectedDate);
+        int absent = Math.max(0, total - attended);
+        int percent = total > 0 ? Math.round(attended * 100f / total) : 0;
 
-        int percent = total > 0 ? (attended * 100 / total) : 0;
-        textViewStats.setText("Thống kê: " + attended + "/" + total + " sinh viên đã điểm danh (" + percent + "%)");
+        textTotalStudents.setText(String.valueOf(total));
+        textPresentStudents.setText(String.valueOf(attended));
+        textAbsentStudents.setText(String.valueOf(absent));
+        textViewStats.setText(total == 0
+                ? "Chưa có sinh viên trong môn học"
+                : String.format(Locale.getDefault(),
+                "Tỷ lệ cả lớp: %d%% (%d có mặt, %d vắng)",
+                percent, attended, absent));
+        progressAttendanceRate.setProgress(percent, true);
+        attendancePieChart.setData(attended, absent);
     }
 
     private void updateEmptyAttendanceState() {
         if (filteredAttendanceList.isEmpty()) {
             recyclerAttendanceList.setVisibility(View.GONE);
             textEmptyAttendanceList.setVisibility(View.VISIBLE);
+            int totalStudents = dbHelper.getTotalStudentsBySubject(currentSubjectId);
+            int presentStudents = dbHelper.getPresentCountBySubjectAndDate(currentSubjectId, selectedDate);
+
+            String emptyMessage;
+            if (totalStudents == 0) {
+                emptyMessage = "Môn học chưa có sinh viên";
+            } else if (presentStudents == 0 && currentFilter == FILTER_PRESENT) {
+                emptyMessage = "Chưa có sinh viên nào điểm danh ngày này";
+            } else if (filteredAttendanceList.isEmpty()) {
+                emptyMessage = "Không có sinh viên phù hợp với bộ lọc";
+            } else {
+                emptyMessage = "Chưa có dữ liệu điểm danh";
+            }
+
+            textEmptyAttendanceList.setText(emptyMessage);
         } else {
             recyclerAttendanceList.setVisibility(View.VISIBLE);
             textEmptyAttendanceList.setVisibility(View.GONE);
@@ -462,6 +595,11 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     }
 
     private void importAttendanceFromCsv(Uri uri) {
+        int insertedCount = 0;
+        int sessionOnlyCount = 0;
+        int duplicateOrSkippedCount = 0;
+        int invalidCount = 0;
+        boolean foundHeader = false;
         try {
             InputStream inputStream = getContentResolver().openInputStream(uri);
             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, "UTF-8"));
@@ -474,34 +612,90 @@ public class AttendanceManagementActivity extends AppCompatActivity {
 
             attendanceList.clear();
             String line;
-            boolean isFirstLine = true;
 
             while ((line = reader.readLine()) != null) {
-                if (isFirstLine) {
-                    isFirstLine = false;
-                    // Skip header if contains column names
-                    if (line.toLowerCase().contains("mã") || line.toLowerCase().contains("sinh viên")) {
-                        continue;
-                    }
+                if (line.trim().isEmpty()) {
+                    continue;
                 }
 
-                String[] tokens = line.split(",");
-                if (tokens.length >= 2) {
-                    String studentId = tokens[0].trim().replace("\"", "");
-                    String fullName = tokens[1].trim().replace("\"", "");
-                    String date = tokens.length >= 3 ? tokens[2].trim().replace("\"", "") : "";
-                    String time = tokens.length >= 4 ? tokens[3].trim().replace("\"", "") : "";
+                List<String> tokens = parseCsvLine(line);
+                String normalizedLine = line.toLowerCase(Locale.getDefault());
 
-                    boolean attended = !date.isEmpty() && !date.equals("--");
-                    attendanceList.add(new AttendanceRecord(studentId, fullName, attended,
-                            attended ? date : null, attended ? time : null));
+                if (!foundHeader) {
+                    if (normalizedLine.contains("mã sinh viên")
+                            && (normalizedLine.contains("ngày điểm danh")
+                            || normalizedLine.contains("ngày học"))) {
+                        foundHeader = true;
+                    }
+                    continue;
+                }
+
+                if (tokens.size() < 4) {
+                    invalidCount++;
+                    continue;
+                }
+
+                String studentId = tokens.get(0).replace("\"", "").trim();
+                String fullName = tokens.get(1).replace("\"", "").trim();
+                String date = tokens.get(2).replace("\"", "").trim();
+                String time = tokens.get(3).replace("\"", "").trim();
+                String lateCutoffTime = tokens.size() >= 5
+                        ? tokens.get(4).replace("\"", "").trim()
+                        : "";
+                String status = tokens.size() >= 6
+                        ? tokens.get(5).replace("\"", "").trim()
+                        : "";
+
+                if (studentId.isEmpty() || date.isEmpty() || date.equals("--")) {
+                    duplicateOrSkippedCount++;
+                    continue;
+                }
+
+                if (!dbHelper.isStudentInSubject(studentId, currentSubjectId)) {
+                    invalidCount++;
+                    continue;
+                }
+
+                if (isNonEmptyCsvValue(lateCutoffTime)) {
+                    dbHelper.updateSessionLateCutoffTime(
+                            currentSubjectId,
+                            date,
+                            lateCutoffTime
+                    );
+                } else {
+                    dbHelper.ensureClassSession(currentSubjectId, date);
+                }
+
+                if (isAbsentStatus(status) || !isNonEmptyCsvValue(time)) {
+                    sessionOnlyCount++;
+                    continue;
+                }
+
+                boolean inserted = dbHelper.insertDailyCheckinIfAbsent(
+                        studentId,
+                        currentSubjectId,
+                        date,
+                        time
+                );
+
+                if (inserted) {
+                    insertedCount++;
+                } else {
+                    duplicateOrSkippedCount++;
                 }
             }
-
             reader.close();
+            loadSubjectInfo();
+            reloadCurrentStatistics();
 
-            applyFilters();
-            Toast.makeText(this, "Import thành công " + attendanceList.size() + " sinh viên!", Toast.LENGTH_LONG).show();
+            Toast.makeText(
+                    this,
+                    "Import xong: thêm " + insertedCount +
+                            ", buổi/vắng " + sessionOnlyCount +
+                            ", bỏ qua " + duplicateOrSkippedCount +
+                            ", lỗi " + invalidCount,
+                    Toast.LENGTH_LONG
+            ).show();
 
         } catch (Exception e) {
             Toast.makeText(this, "Lỗi khi import CSV: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -533,24 +727,36 @@ public class AttendanceManagementActivity extends AppCompatActivity {
 
             String exportDate = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(new Date());
 
-            // Query: Tất cả sinh viên enrolled, LEFT JOIN checkin_history để lấy điểm danh
+            // Query theo class_sessions để export cả các buổi vắng, tránh lệch thống kê.
             String query = "SELECT s." + DatabaseHelper.COL_STUDENT_ID + ", " +
                     "s." + DatabaseHelper.COL_FULL_NAME + ", " +
-                    "ch." + DatabaseHelper.COL_CHECKIN_DATE + ", " +
-                    "ch." + DatabaseHelper.COL_CHECKIN_TIME + " " +
+                    "cs." + DatabaseHelper.COL_SESSION_DATE + ", " +
+                    "fc.first_checkin_time, " +
+                    "cs." + DatabaseHelper.COL_LATE_CUTOFF_TIME + " " +
                     "FROM " + DatabaseHelper.TABLE_ENROLLMENTS + " e " +
                     "JOIN " + DatabaseHelper.TABLE_STUDENTS + " s ON e." + DatabaseHelper.COL_STUDENT_ID +
                     " = s." + DatabaseHelper.COL_STUDENT_ID + " " +
-                    "LEFT JOIN " + DatabaseHelper.TABLE_CHECKIN_HISTORY + " ch ON " +
-                    "ch." + DatabaseHelper.COL_STUDENT_ID + " = s." + DatabaseHelper.COL_STUDENT_ID +
-                    " AND ch." + DatabaseHelper.COL_SUBJECT_ID + " = ? " +
+                    "JOIN " + DatabaseHelper.TABLE_CLASS_SESSIONS + " cs ON " +
+                    "cs." + DatabaseHelper.COL_SUBJECT_ID + " = e." + DatabaseHelper.COL_SUBJECT_ID + " " +
+                    "LEFT JOIN (" +
+                    "SELECT " + DatabaseHelper.COL_STUDENT_ID + ", " +
+                    DatabaseHelper.COL_SUBJECT_ID + ", " +
+                    DatabaseHelper.COL_CHECKIN_DATE + ", " +
+                    "MIN(" + DatabaseHelper.COL_CHECKIN_TIME + ") AS first_checkin_time " +
+                    "FROM " + DatabaseHelper.TABLE_CHECKIN_HISTORY + " " +
+                    "GROUP BY " + DatabaseHelper.COL_STUDENT_ID + ", " +
+                    DatabaseHelper.COL_SUBJECT_ID + ", " +
+                    DatabaseHelper.COL_CHECKIN_DATE +
+                    ") fc ON fc." + DatabaseHelper.COL_STUDENT_ID + " = s." + DatabaseHelper.COL_STUDENT_ID + " AND " +
+                    "fc." + DatabaseHelper.COL_SUBJECT_ID + " = e." + DatabaseHelper.COL_SUBJECT_ID + " AND " +
+                    "fc." + DatabaseHelper.COL_CHECKIN_DATE + " = cs." + DatabaseHelper.COL_SESSION_DATE + " " +
                     "WHERE e." + DatabaseHelper.COL_SUBJECT_ID + " = ? " +
-                    "ORDER BY ch." + DatabaseHelper.COL_CHECKIN_DATE + " IS NULL, " +
-                    "ch." + DatabaseHelper.COL_CHECKIN_DATE + " DESC, " +
-                    "ch." + DatabaseHelper.COL_CHECKIN_TIME + " DESC, " +
-                    "s." + DatabaseHelper.COL_STUDENT_ID + " ASC";
-
-            Cursor cursor = db.rawQuery(query, new String[]{currentSubjectId, currentSubjectId});
+                    "ORDER BY s." + DatabaseHelper.COL_STUDENT_ID + " ASC, " +
+                    "cs." + DatabaseHelper.COL_SESSION_DATE + " IS NULL, " +
+                    "substr(cs." + DatabaseHelper.COL_SESSION_DATE + ", 7, 4) || '-' || " +
+                    "substr(cs." + DatabaseHelper.COL_SESSION_DATE + ", 4, 2) || '-' || " +
+                    "substr(cs." + DatabaseHelper.COL_SESSION_DATE + ", 1, 2) ASC";
+            Cursor cursor = db.rawQuery(query, new String[]{currentSubjectId});
 
             StringBuilder csv = new StringBuilder();
             csv.append("\uFEFF"); // UTF-8 BOM
@@ -561,22 +767,26 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             csv.append("Giảng viên,").append(escapeCsvField(instructorName)).append("\n");
             csv.append("Ngày xuất,").append(escapeCsvField(exportDate)).append("\n");
             csv.append("\n"); // Dòng trống ngăn cách
-            csv.append("Mã sinh viên,Họ và tên,Ngày điểm danh,Giờ điểm danh\n");
+            csv.append("Mã sinh viên,Họ và tên,Ngày học,Giờ điểm danh,Mốc muộn,Trạng thái\n");
 
             if (cursor.moveToFirst()) {
                 do {
                     String studentId = cursor.getString(0);
                     String fullName = cursor.getString(1);
-                    String checkinDate = cursor.isNull(2) ? "" : cursor.getString(2);
+                    String sessionDate = cursor.isNull(2) ? "" : cursor.getString(2);
                     String checkinTime = cursor.isNull(3) ? "" : cursor.getString(3);
+                    String lateCutoffTime = cursor.isNull(4) ? "" : cursor.getString(4);
+                    String status = buildAttendanceStatusText(checkinTime, lateCutoffTime);
 
                     csv.append(escapeCsvField(studentId)).append(",");
                     csv.append(escapeCsvField(fullName)).append(",");
-                    csv.append(escapeCsvField(checkinDate)).append(",");
-                    csv.append(escapeCsvField(checkinTime)).append("\n");
+                    csv.append(escapeCsvField(sessionDate)).append(",");
+                    csv.append(escapeCsvField(checkinTime)).append(",");
+                    csv.append(escapeCsvField(lateCutoffTime)).append(",");
+                    csv.append(escapeCsvField(status)).append("\n");
                 } while (cursor.moveToNext());
             } else {
-                csv.append("Chưa có sinh viên nào trong danh sách môn\n");
+                csv.append("Chưa có dữ liệu sinh viên/buổi học để xuất\n");
             }
             cursor.close();
 
@@ -615,6 +825,60 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             return "\"" + field.replace("\"", "\"\"") + "\"";
         }
         return field;
+    }
+
+    private boolean isNonEmptyCsvValue(String value) {
+        return value != null
+                && !value.trim().isEmpty()
+                && !"--".equals(value.trim());
+    }
+
+    private boolean isAbsentStatus(String status) {
+        if (status == null) {
+            return false;
+        }
+
+        String normalized = status.trim().toLowerCase(Locale.getDefault());
+        return normalized.equals("vắng")
+                || normalized.equals("vang")
+                || normalized.equals("absent");
+    }
+
+    private String buildAttendanceStatusText(String checkinTime, String lateCutoffTime) {
+        if (!isNonEmptyCsvValue(checkinTime)) {
+            return "Vắng";
+        }
+
+        return DatabaseHelper.isLate(checkinTime, lateCutoffTime)
+                ? "Đi muộn"
+                : "Có mặt";
+    }
+
+    private List<String> parseCsvLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    current.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(current.toString().trim());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+
+        values.add(current.toString().trim());
+        return values;
     }
 
     private void writeCsvToUri(Uri uri) {

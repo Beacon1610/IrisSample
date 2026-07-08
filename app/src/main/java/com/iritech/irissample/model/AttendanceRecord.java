@@ -5,29 +5,38 @@ package com.iritech.irissample.model;
  * Dùng trong AttendanceManagementActivity để hiển thị danh sách điểm danh.
  */
 public class AttendanceRecord {
+    public static final String STATUS_PRESENT = "PRESENT";
+    public static final String STATUS_LATE = "LATE";
+    public static final String STATUS_ABSENT = "ABSENT";
+
     private String studentId;
     private String fullName;
     private boolean attended;
+    private String attendanceStatus;
+    private String lateCutoffTime;
     private String checkinDate;  // Format: dd/MM/yyyy
     private String checkinTime;  // Format: HH:mm:ss
 
     // Constructor đầy đủ
-    public AttendanceRecord(String studentId, String fullName, boolean attended,
-                           String checkinDate, String checkinTime) {
+    public AttendanceRecord(
+            String studentId,
+            String fullName,
+            String attendanceStatus,
+            String checkinDate,
+            String checkinTime,
+            String lateCutoffTime
+    ) {
         this.studentId = studentId;
         this.fullName = fullName;
-        this.attended = attended;
         this.checkinDate = checkinDate;
         this.checkinTime = checkinTime;
+        this.lateCutoffTime = lateCutoffTime;
+        setAttendanceStatus(attendanceStatus);
     }
 
     // Constructor cho sinh viên chưa điểm danh
     public AttendanceRecord(String studentId, String fullName) {
-        this.studentId = studentId;
-        this.fullName = fullName;
-        this.attended = false;
-        this.checkinDate = null;
-        this.checkinTime = null;
+        this(studentId, fullName, STATUS_ABSENT, null, null, null);
     }
 
     // Getters
@@ -41,6 +50,22 @@ public class AttendanceRecord {
 
     public boolean isAttended() {
         return attended;
+    }
+
+    public String getAttendanceStatus() {
+        return attendanceStatus;
+    }
+
+    public boolean isLate() {
+        return STATUS_LATE.equals(attendanceStatus);
+    }
+
+    public boolean isAbsent() {
+        return STATUS_ABSENT.equals(attendanceStatus);
+    }
+
+    public String getLateCutoffTime() {
+        return lateCutoffTime;
     }
 
     public String getCheckinDate() {
@@ -62,6 +87,23 @@ public class AttendanceRecord {
 
     public void setAttended(boolean attended) {
         this.attended = attended;
+        this.attendanceStatus = attended ? STATUS_PRESENT : STATUS_ABSENT;
+    }
+
+    public void setAttendanceStatus(String attendanceStatus) {
+        if (STATUS_PRESENT.equals(attendanceStatus)
+                || STATUS_LATE.equals(attendanceStatus)
+                || STATUS_ABSENT.equals(attendanceStatus)) {
+            this.attendanceStatus = attendanceStatus;
+        } else {
+            this.attendanceStatus = STATUS_ABSENT;
+        }
+
+        this.attended = !STATUS_ABSENT.equals(this.attendanceStatus);
+    }
+
+    public void setLateCutoffTime(String lateCutoffTime) {
+        this.lateCutoffTime = lateCutoffTime;
     }
 
     public void setCheckinDate(String checkinDate) {
