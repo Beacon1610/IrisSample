@@ -42,12 +42,14 @@ import com.iritech.irissample.model.export.AttendanceExportData;
 import com.iritech.irissample.model.export.ExportedReport;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -121,7 +123,11 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private List<EmailRecipient> emailList;
     private final List<ExportedReport> exportedReports = new ArrayList<>();
     private ExportedReport selectedEmailReport;
-    private String pendingCsvContent; // CSV content chờ ghi vào vị trí user chọn
+    private byte[] pendingExportData;
+    private ExportedReport.ReportType pendingExportReportType;
+    private String pendingExportDisplayName;
+    private String pendingExportCacheFileName;
+    private String pendingExportSubjectId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -729,24 +735,16 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             AttendanceExportData exportData =
                     attendanceExportService.loadExportData(currentSubjectId);
             String exportDate = buildExportDate();
-            pendingCsvContent = attendanceExportService.buildCsv(exportData, exportDate);
-
-            // Lưu 1 bản vào cache dir cho tính năng gửi email
             String fileName = attendanceExportService.buildCsvFileName(exportData);
-            try {
-                File cacheFile = new File(getCacheDir(), fileName);
-                try (FileOutputStream fos = new FileOutputStream(cacheFile)) {
-                    fos.write(pendingCsvContent.getBytes("UTF-8"));
-                    fos.flush();
-                }
-                registerExportedReport(
-                        ExportedReport.ReportType.CSV_DETAIL,
-                        fileName,
-                        cacheFile
-                );
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            byte[] csvBytes = attendanceExportService.buildCsv(exportData, exportDate)
+                    .getBytes(StandardCharsets.UTF_8);
+
+            preparePendingExport(
+                    ExportedReport.ReportType.CSV_DETAIL,
+                    fileName,
+                    buildReportCacheFileName(ExportedReport.ReportType.CSV_DETAIL),
+                    csvBytes
+            );
 
             openCsvCreateDocument(fileName);
 
@@ -760,11 +758,20 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         try {
             AttendanceExportData exportData =
                     attendanceExportService.loadExportData(currentSubjectId);
-            pendingCsvContent = attendanceExportService.buildSummaryCsv(
+            String fileName = attendanceExportService.buildSummaryCsvFileName(exportData);
+            byte[] csvBytes = attendanceExportService.buildSummaryCsv(
                     exportData,
                     buildExportDate()
+            ).getBytes(StandardCharsets.UTF_8);
+
+            preparePendingExport(
+                    ExportedReport.ReportType.CSV_SUMMARY,
+                    fileName,
+                    buildReportCacheFileName(ExportedReport.ReportType.CSV_SUMMARY),
+                    csvBytes
             );
-            openCsvCreateDocument(attendanceExportService.buildSummaryCsvFileName(exportData));
+
+            openCsvCreateDocument(fileName);
         } catch (Exception e) {
             Toast.makeText(
                     this,
@@ -779,11 +786,20 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         try {
             AttendanceExportData exportData =
                     attendanceExportService.loadExportData(currentSubjectId);
-            pendingCsvContent = attendanceExportService.buildMatrixCsv(
+            String fileName = attendanceExportService.buildMatrixCsvFileName(exportData);
+            byte[] csvBytes = attendanceExportService.buildMatrixCsv(
                     exportData,
                     buildExportDate()
+            ).getBytes(StandardCharsets.UTF_8);
+
+            preparePendingExport(
+                    ExportedReport.ReportType.CSV_MATRIX,
+                    fileName,
+                    buildReportCacheFileName(ExportedReport.ReportType.CSV_MATRIX),
+                    csvBytes
             );
-            openCsvCreateDocument(attendanceExportService.buildMatrixCsvFileName(exportData));
+
+            openCsvCreateDocument(fileName);
         } catch (Exception e) {
             Toast.makeText(
                     this,
@@ -808,10 +824,18 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             return;
         }
 
+        String fileName = buildDefaultExcelFileName();
+        preparePendingExport(
+                ExportedReport.ReportType.EXCEL,
+                fileName,
+                buildReportCacheFileName(ExportedReport.ReportType.EXCEL),
+                null
+        );
+
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        intent.putExtra(Intent.EXTRA_TITLE, buildDefaultExcelFileName());
+        intent.putExtra(Intent.EXTRA_TITLE, fileName);
         startActivityForResult(intent, REQUEST_CODE_CREATE_EXCEL_DOCUMENT);
     }
 
@@ -821,27 +845,51 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             return;
         }
 
+        boolean userFileSaved = false;
         try {
+            if (pendingExportReportType != ExportedReport.ReportType.EXCEL
+                    || pendingExportDisplayName == null
+                    || pendingExportCacheFileName == null
+                    || !String.valueOf(currentSubjectId).equals(pendingExportSubjectId)) {
+                preparePendingExport(
+                        ExportedReport.ReportType.EXCEL,
+                        buildDefaultExcelFileName(),
+                        buildReportCacheFileName(ExportedReport.ReportType.EXCEL),
+                        null
+                );
+            }
+
             AttendanceExportData exportData =
                     attendanceExportService.loadExportData(currentSubjectId);
-
-            try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
-                if (outputStream == null) {
-                    Toast.makeText(this, "Không mở được file để ghi Excel", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
+            byte[] excelBytes;
+            try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
                 new AttendanceExcelExporter().export(
                         outputStream,
                         exportData,
                         buildExportDate()
                 );
+                excelBytes = outputStream.toByteArray();
             }
+
+            writeBytesToUri(uri, excelBytes);
+            userFileSaved = true;
+
+            File cacheFile = writeBytesToCache(excelBytes, pendingExportCacheFileName);
+            registerExportedReport(
+                    ExportedReport.ReportType.EXCEL,
+                    pendingExportDisplayName,
+                    cacheFile
+            );
 
             Toast.makeText(this, "Đã xuất file Excel thành công!", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
-            Toast.makeText(this, "Lỗi khi xuất Excel: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            String message = userFileSaved
+                    ? "File Excel đã được lưu, nhưng không tạo được cache để gửi email: "
+                    : "Lỗi khi xuất Excel: ";
+            Toast.makeText(this, message + e.getMessage(), Toast.LENGTH_LONG).show();
             e.printStackTrace();
+        } finally {
+            clearPendingExport();
         }
     }
 
@@ -864,6 +912,96 @@ public class AttendanceManagementActivity extends AppCompatActivity {
 
     private String buildExportDate() {
         return new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(new Date());
+    }
+
+    private void preparePendingExport(
+            ExportedReport.ReportType reportType,
+            String displayName,
+            String cacheFileName,
+            byte[] data
+    ) {
+        pendingExportReportType = reportType;
+        pendingExportDisplayName = displayName;
+        pendingExportCacheFileName = cacheFileName;
+        pendingExportSubjectId = currentSubjectId == null ? null : String.valueOf(currentSubjectId);
+        pendingExportData = data;
+    }
+
+    private void clearPendingExport() {
+        pendingExportData = null;
+        pendingExportReportType = null;
+        pendingExportDisplayName = null;
+        pendingExportCacheFileName = null;
+        pendingExportSubjectId = null;
+    }
+
+    private File writeBytesToCache(byte[] data, String fileName) throws IOException {
+        if (data == null || data.length == 0) {
+            throw new IOException("Dữ liệu báo cáo rỗng");
+        }
+        if (fileName == null || fileName.trim().isEmpty()) {
+            throw new IOException("Tên file cache không hợp lệ");
+        }
+
+        File cacheFile = new File(getCacheDir(), fileName);
+        try (FileOutputStream fos = new FileOutputStream(cacheFile)) {
+            fos.write(data);
+            fos.flush();
+        } catch (IOException e) {
+            if (cacheFile.exists()) {
+                cacheFile.delete();
+            }
+            throw e;
+        }
+
+        if (!cacheFile.exists() || !cacheFile.isFile() || cacheFile.length() <= 0) {
+            if (cacheFile.exists()) {
+                cacheFile.delete();
+            }
+            throw new IOException("File cache báo cáo rỗng");
+        }
+
+        return cacheFile;
+    }
+
+    private void writeBytesToUri(Uri uri, byte[] data) throws IOException {
+        if (uri == null) {
+            throw new IOException("Không chọn được nơi lưu file");
+        }
+        if (data == null || data.length == 0) {
+            throw new IOException("Dữ liệu báo cáo rỗng");
+        }
+
+        try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+            if (os == null) {
+                throw new IOException("Không mở được file để ghi");
+            }
+            os.write(data);
+            os.flush();
+        }
+    }
+
+    private String buildReportCacheFileName(ExportedReport.ReportType reportType) {
+        String subjectPart = currentSubjectId;
+        if (subjectPart == null || subjectPart.trim().isEmpty()) {
+            subjectPart = "unknown";
+        }
+        String safeSubjectId = subjectPart.replaceAll("[^a-zA-Z0-9_-]", "_");
+        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US)
+                .format(new Date());
+
+        switch (reportType) {
+            case CSV_DETAIL:
+                return "attendance_detail_" + safeSubjectId + "_" + timestamp + ".csv";
+            case CSV_SUMMARY:
+                return "attendance_summary_" + safeSubjectId + "_" + timestamp + ".csv";
+            case CSV_MATRIX:
+                return "attendance_matrix_" + safeSubjectId + "_" + timestamp + ".csv";
+            case EXCEL:
+                return "attendance_" + safeSubjectId + "_" + timestamp + ".xlsx";
+            default:
+                return "attendance_" + safeSubjectId + "_" + timestamp;
+        }
     }
 
     private void registerExportedReport(
@@ -1071,23 +1209,38 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     }
 
     private void writeCsvToUri(Uri uri) {
-        if (pendingCsvContent == null) {
+        if (pendingExportData == null
+                || pendingExportReportType == null
+                || pendingExportDisplayName == null
+                || pendingExportCacheFileName == null
+                || !String.valueOf(currentSubjectId).equals(pendingExportSubjectId)) {
             Toast.makeText(this, "Không có dữ liệu CSV để lưu", Toast.LENGTH_SHORT).show();
+            clearPendingExport();
             return;
         }
+
+        boolean userFileSaved = false;
         try {
-            java.io.OutputStream os = getContentResolver().openOutputStream(uri);
-            if (os != null) {
-                os.write(pendingCsvContent.getBytes("UTF-8"));
-                os.flush();
-                os.close();
-                Toast.makeText(this, "Đã xuất file CSV thành công!", Toast.LENGTH_LONG).show();
-            }
+            writeBytesToUri(uri, pendingExportData);
+            userFileSaved = true;
+
+            File cacheFile = writeBytesToCache(pendingExportData, pendingExportCacheFileName);
+            registerExportedReport(
+                    pendingExportReportType,
+                    pendingExportDisplayName,
+                    cacheFile
+            );
+
+            Toast.makeText(this, "Đã xuất file CSV thành công!", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
-            Toast.makeText(this, "Lỗi khi lưu file CSV: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            String message = userFileSaved
+                    ? "File CSV đã được lưu, nhưng không tạo được cache để gửi email: "
+                    : "Lỗi khi lưu file CSV: ";
+            Toast.makeText(this, message + e.getMessage(), Toast.LENGTH_LONG).show();
             e.printStackTrace();
+        } finally {
+            clearPendingExport();
         }
-        pendingCsvContent = null;
     }
 
     // ==================== EMAIL MANAGEMENT FUNCTIONS ====================
@@ -1352,11 +1505,22 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                 importEmailsFromCsv(uri);
             } else if (requestCode == REQUEST_CODE_IMPORT_ATTENDANCE_CSV) {
                 importAttendanceFromCsv(uri);
-            } else if (requestCode == REQUEST_CODE_CREATE_CSV_DOCUMENT && uri != null) {
-                writeCsvToUri(uri);
-            } else if (requestCode == REQUEST_CODE_CREATE_EXCEL_DOCUMENT && uri != null) {
-                handleExportExcelUri(uri);
+            } else if (requestCode == REQUEST_CODE_CREATE_CSV_DOCUMENT) {
+                if (uri != null) {
+                    writeCsvToUri(uri);
+                } else {
+                    clearPendingExport();
+                }
+            } else if (requestCode == REQUEST_CODE_CREATE_EXCEL_DOCUMENT) {
+                if (uri != null) {
+                    handleExportExcelUri(uri);
+                } else {
+                    clearPendingExport();
+                }
             }
+        } else if (requestCode == REQUEST_CODE_CREATE_CSV_DOCUMENT
+                || requestCode == REQUEST_CODE_CREATE_EXCEL_DOCUMENT) {
+            clearPendingExport();
         }
     }
 
