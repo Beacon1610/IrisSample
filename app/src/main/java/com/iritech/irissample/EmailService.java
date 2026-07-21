@@ -274,15 +274,32 @@ public class EmailService {
     }
     
     /**
-     * Gửi email báo cáo điểm danh với file CSV đính kèm
+     * Gửi email báo cáo điểm danh với file đính kèm.
      * @param recipients Danh sách email người nhận
      * @param subject Tiêu đề email
      * @param htmlBody Nội dung email HTML
-     * @param csvFile File CSV đính kèm
+     * @param attachmentFile File báo cáo đính kèm
      * @param callback Callback để thông báo kết quả
      */
-    public static void sendAttendanceReportEmail(final String[] recipients, final String subject, 
-                                                   final String htmlBody, final File csvFile,
+    public static void sendAttendanceReportEmail(final String[] recipients, final String subject,
+                                                   final String htmlBody, final File attachmentFile,
+                                                   final EmailCallback callback) {
+        sendAttendanceReportEmail(recipients, subject, htmlBody, attachmentFile,
+                attachmentFile == null ? null : attachmentFile.getName(), callback);
+    }
+
+    /**
+     * Gửi email báo cáo điểm danh với tên file đính kèm có thể tùy chỉnh.
+     * @param recipients Danh sách email người nhận
+     * @param subject Tiêu đề email
+     * @param htmlBody Nội dung email HTML
+     * @param attachmentFile File báo cáo đính kèm
+     * @param attachmentDisplayName Tên file hiển thị trên email
+     * @param callback Callback để thông báo kết quả
+     */
+    public static void sendAttendanceReportEmail(final String[] recipients, final String subject,
+                                                   final String htmlBody, final File attachmentFile,
+                                                   final String attachmentDisplayName,
                                                    final EmailCallback callback) {
         new AsyncTask<Void, Void, Boolean>() {
             private Exception exception;
@@ -340,6 +357,13 @@ public class EmailService {
                     );
                     message.setSubject(subject);
                     
+                    if (attachmentFile == null
+                            || !attachmentFile.exists()
+                            || !attachmentFile.isFile()
+                            || attachmentFile.length() <= 0) {
+                        throw new IllegalArgumentException("File đính kèm không hợp lệ");
+                    }
+
                     // Tạo multipart message
                     Multipart multipart = new MimeMultipart();
                     
@@ -348,14 +372,14 @@ public class EmailService {
                     htmlPart.setContent(htmlBody, "text/html; charset=utf-8");
                     multipart.addBodyPart(htmlPart);
                     
-                    // Phần 2: CSV attachment
-                    if (csvFile != null && csvFile.exists()) {
-                        MimeBodyPart attachmentPart = new MimeBodyPart();
-                        FileDataSource source = new FileDataSource(csvFile);
-                        attachmentPart.setDataHandler(new DataHandler(source));
-                        attachmentPart.setFileName(csvFile.getName());
-                        multipart.addBodyPart(attachmentPart);
-                    }
+                    // Phần 2: file báo cáo đính kèm
+                    MimeBodyPart attachmentPart = new MimeBodyPart();
+                    FileDataSource source = new FileDataSource(attachmentFile);
+                    attachmentPart.setDataHandler(new DataHandler(source));
+                    attachmentPart.setFileName(isBlank(attachmentDisplayName)
+                            ? attachmentFile.getName()
+                            : attachmentDisplayName);
+                    multipart.addBodyPart(attachmentPart);
                     
                     // Set multipart content
                     message.setContent(multipart);

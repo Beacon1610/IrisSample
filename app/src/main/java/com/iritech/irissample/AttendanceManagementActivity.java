@@ -125,6 +125,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private List<EmailRecipient> emailList;
     private final List<ExportedReport> exportedReports = new ArrayList<>();
     private ExportedReport selectedEmailReport;
+    private boolean emailSendingInProgress;
     private byte[] pendingExportData;
     private ExportedReport.ReportType pendingExportReportType;
     private String pendingExportDisplayName;
@@ -245,7 +246,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         // Email tab buttons
         btnAddEmail.setOnClickListener(v -> addEmailManually());
         btnImportEmailCsv.setOnClickListener(v -> openEmailCsvPicker());
-        btnSendEmail.setOnClickListener(v -> sendEmailWithCsv());
+        btnSendEmail.setOnClickListener(v -> sendEmailWithReport());
         btnChooseReport.setOnClickListener(v -> showReportSelectionDialog());
 
         checkBoxSelectAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -1115,21 +1116,6 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         }
     }
 
-    private File getSelectedReportFile() {
-        if (isValidReportFile(selectedEmailReport)) {
-            return selectedEmailReport.getCacheFile();
-        }
-
-        List<ExportedReport> reportsForSubject = getReportsForCurrentSubject();
-        if (!reportsForSubject.isEmpty()) {
-            selectedEmailReport = reportsForSubject.get(0);
-            return selectedEmailReport.getCacheFile();
-        }
-
-        selectedEmailReport = null;
-        return null;
-    }
-
     private void updateSelectedReportUi() {
         if (textSelectedReportType == null
                 || textSelectedReportFileName == null
@@ -1217,6 +1203,45 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private String formatExportedAt(long timestamp) {
         return new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
                 .format(new Date(timestamp));
+    }
+
+    private boolean isReportForCurrentSubject(ExportedReport report) {
+        return report != null
+                && currentSubjectId != null
+                && String.valueOf(currentSubjectId).equals(report.getSubjectId());
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        StringBuilder escaped = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '&':
+                    escaped.append("&amp;");
+                    break;
+                case '<':
+                    escaped.append("&lt;");
+                    break;
+                case '>':
+                    escaped.append("&gt;");
+                    break;
+                case '"':
+                    escaped.append("&quot;");
+                    break;
+                case '\'':
+                    escaped.append("&#39;");
+                    break;
+                default:
+                    escaped.append(c);
+                    break;
+            }
+        }
+
+        return escaped.toString();
     }
 
     private void deleteCacheFileIfUnused(File file) {
@@ -1491,7 +1516,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         }
     }
 
-    private void sendEmailWithCsv() {
+    private void sendEmailWithReport() {
         String[] selectedEmails = emailAdapter.getSelectedEmails();
 
         if (selectedEmails.length == 0) {
@@ -1499,45 +1524,78 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             return;
         }
 
-        File attachmentFile = getSelectedReportFile();
-        if (attachmentFile == null) {
-            new AlertDialog.Builder(this)
-                .setTitle("Chưa có báo cáo")
-                .setMessage("Bạn chưa xuất báo cáo nào. Vui lòng xuất ít nhất một báo cáo trước khi gửi email.")
-                .setPositiveButton("Xuất CSV", (dialog, which) -> exportAttendanceToCSV())
-                .setNegativeButton("Hủy", null)
-                .show();
+        if (emailSendingInProgress) {
+            Toast.makeText(this, "Email đang được gửi. Vui lòng đợi.", Toast.LENGTH_SHORT).show();
             return;
         }
 
+        if (selectedEmailReport == null) {
+            Toast.makeText(this, "Vui lòng chọn báo cáo cần gửi.", Toast.LENGTH_SHORT).show();
+            showReportSelectionDialog();
+            return;
+        }
+
+        if (!isReportForCurrentSubject(selectedEmailReport)) {
+            Toast.makeText(this,
+                    "Báo cáo đã chọn không thuộc môn học hiện tại. Vui lòng chọn lại báo cáo.",
+                    Toast.LENGTH_LONG).show();
+            selectedEmailReport = null;
+            updateSelectedReportUi();
+            showReportSelectionDialog();
+            return;
+        }
+
+        if (!isValidReportFile(selectedEmailReport)) {
+            Toast.makeText(this,
+                    "File báo cáo không còn tồn tại. Vui lòng xuất lại báo cáo.",
+                    Toast.LENGTH_LONG).show();
+            selectedEmailReport = null;
+            updateSelectedReportUi();
+            return;
+        }
+
+        ExportedReport reportToSend = selectedEmailReport;
+        File attachmentFile = reportToSend.getCacheFile();
         new AlertDialog.Builder(this)
             .setTitle("Gửi Email")
-            .setMessage("Gửi báo cáo điểm danh đến " + selectedEmails.length + " email?\n\n" +
-                       "File đính kèm: " + attachmentFile.getName())
-            .setPositiveButton("Gửi", (dialog, which) -> performSendEmail(selectedEmails))
+            .setMessage("Môn học: " + currentSubjectName + "\n" +
+                    "Người nhận: " + selectedEmails.length + " email\n" +
+                    "Loại báo cáo: " + reportToSend.getReportTypeLabel() + "\n" +
+                    "Tên file: " + reportToSend.getDisplayName() + "\n" +
+                    "Dung lượng: " + formatFileSize(attachmentFile.length()))
+            .setPositiveButton("Gửi", (dialog, which) -> performSendEmail(selectedEmails, reportToSend))
             .setNegativeButton("Hủy", null)
             .show();
     }
 
-    private void performSendEmail(String[] recipients) {
-        File attachmentFile = getSelectedReportFile();
-        if (attachmentFile == null) {
+    private void performSendEmail(String[] recipients, ExportedReport report) {
+        if (emailSendingInProgress) {
+            return;
+        }
+        if (!isReportForCurrentSubject(report) || !isValidReportFile(report)) {
             Toast.makeText(this,
                     "File báo cáo không còn tồn tại. Vui lòng xuất lại báo cáo.",
                     Toast.LENGTH_LONG).show();
+            if (report == selectedEmailReport) {
+                selectedEmailReport = null;
+                updateSelectedReportUi();
+            }
             return;
         }
 
+        File attachmentFile = report.getCacheFile();
         String subject = "Báo cáo điểm danh - " + currentSubjectName;
         String htmlBody = "<html><body style='font-family: Arial, sans-serif;'>" +
                 "<h2>Báo cáo điểm danh</h2>" +
-                "<p><strong>Môn học:</strong> " + currentSubjectName + "</p>" +
-                "<p><strong>Mã môn:</strong> " + currentSubjectId + "</p>" +
+                "<p><strong>Môn học:</strong> " + escapeHtml(currentSubjectName) + "</p>" +
+                "<p><strong>Mã môn:</strong> " + escapeHtml(currentSubjectId) + "</p>" +
+                "<p><strong>Loại báo cáo:</strong> " + escapeHtml(report.getReportTypeLabel()) + "</p>" +
+                "<p><strong>File đính kèm:</strong> " + escapeHtml(report.getDisplayName()) + "</p>" +
                 "<p><strong>Ngày gửi:</strong> " +
                 new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date()) + "</p>" +
-                "<p>File CSV dữ liệu điểm danh đính kèm.</p>" +
+                "<p>File báo cáo điểm danh được đính kèm trong email.</p>" +
                 "<p style='margin-top: 30px;'>Trân trọng,<br/>" +
-                BuildConfig.BREVO_SENDER_NAME + "</p>" +
+                escapeHtml(BuildConfig.BREVO_SENDER_NAME) + "</p>" +
                 "</body></html>";
 
         AlertDialog progressDialog = new AlertDialog.Builder(this)
@@ -1546,13 +1604,18 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                 .setCancelable(false)
                 .create();
         progressDialog.show();
+        emailSendingInProgress = true;
+        updateSendEmailButtonEnabled();
 
-        EmailService.sendAttendanceReportEmail(recipients, subject, htmlBody, attachmentFile,
+        EmailService.sendAttendanceReportEmail(recipients, subject, htmlBody,
+                attachmentFile, report.getDisplayName(),
                 new EmailService.EmailCallback() {
                     @Override
                     public void onSuccess() {
                         runOnUiThread(() -> {
                             progressDialog.dismiss();
+                            emailSendingInProgress = false;
+                            updateSendEmailButtonEnabled();
                             Toast.makeText(AttendanceManagementActivity.this,
                                     "Đã gửi email thành công đến " + recipients.length + " người nhận",
                                     Toast.LENGTH_LONG).show();
@@ -1563,6 +1626,8 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                     public void onError(String error) {
                         runOnUiThread(() -> {
                             progressDialog.dismiss();
+                            emailSendingInProgress = false;
+                            updateSendEmailButtonEnabled();
                             new AlertDialog.Builder(AttendanceManagementActivity.this)
                                     .setTitle("Lỗi gửi email")
                                     .setMessage("Không thể gửi email: " + error)
@@ -1581,13 +1646,22 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         } else {
             recyclerEmailList.setVisibility(View.VISIBLE);
             textEmptyEmailList.setVisibility(View.GONE);
-            btnSendEmail.setEnabled(true);
+            updateSendEmailButtonEnabled();
         }
     }
 
     private void updateSelectedCount(int count) {
         textSelectedCount.setText("Đã chọn: " + count + " email");
-        btnSendEmail.setEnabled(count > 0);
+        updateSendEmailButtonEnabled();
+    }
+
+    private void updateSendEmailButtonEnabled() {
+        if (btnSendEmail == null || emailAdapter == null) {
+            return;
+        }
+
+        btnSendEmail.setEnabled(!emailSendingInProgress
+                && emailAdapter.getSelectedCount() > 0);
     }
 
     @Override
