@@ -39,6 +39,7 @@ import com.iritech.irissample.model.EmailRecipient;
 import com.iritech.irissample.model.StudentAttendanceStats;
 import com.iritech.irissample.adapter.StudentAttendanceDetailAdapter;
 import com.iritech.irissample.model.export.AttendanceExportData;
+import com.iritech.irissample.model.export.ExportedReport;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -118,7 +119,8 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private String currentSubjectName;
     private EmailRecipientAdapter emailAdapter;
     private List<EmailRecipient> emailList;
-    private File lastExportedCsvFile;
+    private final List<ExportedReport> exportedReports = new ArrayList<>();
+    private ExportedReport selectedEmailReport;
     private String pendingCsvContent; // CSV content chờ ghi vào vị trí user chọn
 
     @Override
@@ -737,7 +739,11 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                     fos.write(pendingCsvContent.getBytes("UTF-8"));
                     fos.flush();
                 }
-                lastExportedCsvFile = cacheFile;
+                registerExportedReport(
+                        ExportedReport.ReportType.CSV_DETAIL,
+                        fileName,
+                        cacheFile
+                );
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -858,6 +864,166 @@ public class AttendanceManagementActivity extends AppCompatActivity {
 
     private String buildExportDate() {
         return new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(new Date());
+    }
+
+    private void registerExportedReport(
+            ExportedReport.ReportType reportType,
+            String displayName,
+            File cacheFile
+    ) {
+        if (reportType == null
+                || displayName == null
+                || displayName.trim().isEmpty()
+                || currentSubjectId == null
+                || currentSubjectId.trim().isEmpty()
+                || cacheFile == null
+                || !cacheFile.exists()
+                || !cacheFile.isFile()
+                || cacheFile.length() <= 0) {
+            return;
+        }
+
+        String subjectId = String.valueOf(currentSubjectId);
+        List<File> oldFiles = new ArrayList<>();
+        for (int i = exportedReports.size() - 1; i >= 0; i--) {
+            ExportedReport report = exportedReports.get(i);
+            if (report != null
+                    && report.getReportType() == reportType
+                    && subjectId.equals(report.getSubjectId())) {
+                File oldFile = report.getCacheFile();
+                exportedReports.remove(i);
+                if (oldFile != null && !isSameFile(oldFile, cacheFile)) {
+                    oldFiles.add(oldFile);
+                }
+            }
+        }
+
+        ExportedReport report = new ExportedReport(
+                reportType,
+                subjectId,
+                displayName.trim(),
+                cacheFile,
+                cacheFile.length(),
+                System.currentTimeMillis()
+        );
+        exportedReports.add(report);
+        selectedEmailReport = report;
+
+        for (File oldFile : oldFiles) {
+            deleteCacheFileIfUnused(oldFile);
+        }
+
+        updateSelectedReportUi();
+    }
+
+    private List<ExportedReport> getReportsForCurrentSubject() {
+        List<ExportedReport> reportsForSubject = new ArrayList<>();
+
+        for (int i = exportedReports.size() - 1; i >= 0; i--) {
+            ExportedReport report = exportedReports.get(i);
+            boolean sameSubject = report != null
+                    && String.valueOf(currentSubjectId).equals(report.getSubjectId());
+            if (!sameSubject) {
+                continue;
+            }
+
+            if (isValidReportFile(report)) {
+                reportsForSubject.add(report);
+            } else {
+                exportedReports.remove(i);
+                if (report == selectedEmailReport) {
+                    selectedEmailReport = null;
+                }
+            }
+        }
+
+        reportsForSubject.sort((left, right) ->
+                Long.compare(right.getExportedAt(), left.getExportedAt()));
+        return reportsForSubject;
+    }
+
+    private boolean isValidReportFile(ExportedReport report) {
+        if (report == null
+                || report.getReportType() == null
+                || currentSubjectId == null
+                || !String.valueOf(currentSubjectId).equals(report.getSubjectId())
+                || report.getCacheFile() == null
+                || !report.getCacheFile().exists()
+                || !report.getCacheFile().isFile()
+                || report.getCacheFile().length() <= 0) {
+            return false;
+        }
+
+        String fileName = report.getCacheFile().getName().toLowerCase(Locale.US);
+        switch (report.getReportType()) {
+            case CSV_DETAIL:
+            case CSV_SUMMARY:
+            case CSV_MATRIX:
+                return fileName.endsWith(".csv");
+            case EXCEL:
+                return fileName.endsWith(".xlsx");
+            default:
+                return false;
+        }
+    }
+
+    private File getSelectedReportFile() {
+        if (isValidReportFile(selectedEmailReport)) {
+            return selectedEmailReport.getCacheFile();
+        }
+
+        List<ExportedReport> reportsForSubject = getReportsForCurrentSubject();
+        if (!reportsForSubject.isEmpty()) {
+            selectedEmailReport = reportsForSubject.get(0);
+            return selectedEmailReport.getCacheFile();
+        }
+
+        selectedEmailReport = null;
+        return null;
+    }
+
+    private void updateSelectedReportUi() {
+        // Phase 5 will bind and update the exported-report selector UI.
+    }
+
+    private void deleteCacheFileIfUnused(File file) {
+        if (file == null || isCacheFileUsed(file)) {
+            return;
+        }
+
+        try {
+            File cacheDir = getCacheDir().getCanonicalFile();
+            File targetFile = file.getCanonicalFile();
+            if (targetFile.getParentFile() != null
+                    && cacheDir.equals(targetFile.getParentFile())
+                    && targetFile.exists()
+                    && targetFile.isFile()) {
+                targetFile.delete();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean isCacheFileUsed(File file) {
+        for (ExportedReport report : exportedReports) {
+            if (report != null && isSameFile(report.getCacheFile(), file)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSameFile(File left, File right) {
+        if (left == null || right == null) {
+            return false;
+        }
+
+        try {
+            return left.getCanonicalFile().equals(right.getCanonicalFile());
+        } catch (IOException e) {
+            return left.getAbsolutePath().equals(right.getAbsolutePath());
+        }
     }
 
     private boolean isNonEmptyCsvValue(String value) {
@@ -1085,10 +1251,11 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             return;
         }
 
-        if (lastExportedCsvFile == null || !lastExportedCsvFile.exists()) {
+        File attachmentFile = getSelectedReportFile();
+        if (attachmentFile == null) {
             new AlertDialog.Builder(this)
-                .setTitle("Chưa có file CSV")
-                .setMessage("Bạn cần xuất CSV trước khi gửi email. Xuất ngay bây giờ?")
+                .setTitle("Chưa có báo cáo")
+                .setMessage("Bạn chưa xuất báo cáo nào. Vui lòng xuất ít nhất một báo cáo trước khi gửi email.")
                 .setPositiveButton("Xuất CSV", (dialog, which) -> exportAttendanceToCSV())
                 .setNegativeButton("Hủy", null)
                 .show();
@@ -1098,13 +1265,21 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
             .setTitle("Gửi Email")
             .setMessage("Gửi báo cáo điểm danh đến " + selectedEmails.length + " email?\n\n" +
-                       "File đính kèm: " + lastExportedCsvFile.getName())
+                       "File đính kèm: " + attachmentFile.getName())
             .setPositiveButton("Gửi", (dialog, which) -> performSendEmail(selectedEmails))
             .setNegativeButton("Hủy", null)
             .show();
     }
 
     private void performSendEmail(String[] recipients) {
+        File attachmentFile = getSelectedReportFile();
+        if (attachmentFile == null) {
+            Toast.makeText(this,
+                    "File báo cáo không còn tồn tại. Vui lòng xuất lại báo cáo.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
         String subject = "Báo cáo điểm danh - " + currentSubjectName;
         String htmlBody = "<html><body style='font-family: Arial, sans-serif;'>" +
                 "<h2>Báo cáo điểm danh</h2>" +
@@ -1124,7 +1299,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                 .create();
         progressDialog.show();
 
-        EmailService.sendAttendanceReportEmail(recipients, subject, htmlBody, lastExportedCsvFile,
+        EmailService.sendAttendanceReportEmail(recipients, subject, htmlBody, attachmentFile,
                 new EmailService.EmailCallback() {
                     @Override
                     public void onSuccess() {
