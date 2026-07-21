@@ -90,6 +90,8 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private Button btnAddEmail, btnImportEmailCsv, btnSendEmail;
     private CheckBox checkBoxSelectAll;
     private TextView textSelectedCount, textEmptyEmailList;
+    private TextView textSelectedReportType, textSelectedReportFileName, textSelectedReportMeta;
+    private Button btnChooseReport;
     private RecyclerView recyclerEmailList;
 
     // View Tab
@@ -192,6 +194,10 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         checkBoxSelectAll = findViewById(R.id.checkBoxSelectAll);
         textSelectedCount = findViewById(R.id.textSelectedCount);
         textEmptyEmailList = findViewById(R.id.textEmptyEmailList);
+        textSelectedReportType = findViewById(R.id.textSelectedReportType);
+        textSelectedReportFileName = findViewById(R.id.textSelectedReportFileName);
+        textSelectedReportMeta = findViewById(R.id.textSelectedReportMeta);
+        btnChooseReport = findViewById(R.id.btnChooseReport);
         recyclerEmailList = findViewById(R.id.recyclerEmailList);
 
         // View tab
@@ -225,7 +231,10 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             reloadCurrentStatistics();
         });
         btnTabExport.setOnClickListener(v -> showTab(1));
-        btnTabEmail.setOnClickListener(v -> showTab(2));
+        btnTabEmail.setOnClickListener(v -> {
+            updateSelectedReportUi();
+            showTab(2);
+        });
 
         // Export button
         btnExportCsv.setOnClickListener(v -> exportAttendanceToCSV());
@@ -237,6 +246,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         btnAddEmail.setOnClickListener(v -> addEmailManually());
         btnImportEmailCsv.setOnClickListener(v -> openEmailCsvPicker());
         btnSendEmail.setOnClickListener(v -> sendEmailWithCsv());
+        btnChooseReport.setOnClickListener(v -> showReportSelectionDialog());
 
         checkBoxSelectAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (emailAdapter != null) {
@@ -1121,7 +1131,92 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     }
 
     private void updateSelectedReportUi() {
-        // Phase 5 will bind and update the exported-report selector UI.
+        if (textSelectedReportType == null
+                || textSelectedReportFileName == null
+                || textSelectedReportMeta == null
+                || btnChooseReport == null) {
+            return;
+        }
+
+        if (!isValidReportFile(selectedEmailReport)) {
+            selectedEmailReport = null;
+        }
+
+        if (selectedEmailReport == null) {
+            textSelectedReportType.setText("Chưa chọn báo cáo");
+            textSelectedReportFileName.setText("Bạn chưa xuất báo cáo nào cho môn học này");
+            textSelectedReportMeta.setText("");
+            btnChooseReport.setText("Chọn báo cáo");
+            return;
+        }
+
+        File cacheFile = selectedEmailReport.getCacheFile();
+        textSelectedReportType.setText(selectedEmailReport.getReportTypeLabel());
+        textSelectedReportFileName.setText(selectedEmailReport.getDisplayName());
+        textSelectedReportMeta.setText(formatFileSize(cacheFile.length()) +
+                " · " + formatExportedAt(selectedEmailReport.getExportedAt()));
+        btnChooseReport.setText("Thay đổi");
+    }
+
+    private void showReportSelectionDialog() {
+        List<ExportedReport> reportsForSubject = getReportsForCurrentSubject();
+        if (reportsForSubject.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Chưa có báo cáo")
+                    .setMessage("Bạn chưa xuất báo cáo nào cho môn học này.\nVui lòng xuất ít nhất một báo cáo trước khi gửi email.")
+                    .setPositiveButton("Đến phần xuất", (dialog, which) -> showTab(1))
+                    .setNegativeButton("Đóng", null)
+                    .show();
+            updateSelectedReportUi();
+            return;
+        }
+
+        String[] items = new String[reportsForSubject.size()];
+        int selectedIndex = -1;
+        for (int i = 0; i < reportsForSubject.size(); i++) {
+            ExportedReport report = reportsForSubject.get(i);
+            File cacheFile = report.getCacheFile();
+            items[i] = report.getReportTypeLabel() + " — " +
+                    report.getDisplayName() + "\n" +
+                    formatFileSize(cacheFile.length()) + " · " +
+                    formatExportedAt(report.getExportedAt());
+
+            if (selectedEmailReport != null
+                    && report.getReportType() == selectedEmailReport.getReportType()
+                    && report.getSubjectId().equals(selectedEmailReport.getSubjectId())
+                    && isSameFile(report.getCacheFile(), selectedEmailReport.getCacheFile())) {
+                selectedIndex = i;
+            }
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Chọn báo cáo")
+                .setSingleChoiceItems(items, selectedIndex, (dialog, which) -> {
+                    selectedEmailReport = reportsForSubject.get(which);
+                    updateSelectedReportUi();
+                    dialog.dismiss();
+                })
+                .setNegativeButton("Hủy", null)
+                .show();
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+
+        double kiloBytes = bytes / 1024d;
+        if (kiloBytes < 1024) {
+            return String.format(Locale.US, "%.1f KB", kiloBytes);
+        }
+
+        double megaBytes = kiloBytes / 1024d;
+        return String.format(Locale.US, "%.1f MB", megaBytes);
+    }
+
+    private String formatExportedAt(long timestamp) {
+        return new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                .format(new Date(timestamp));
     }
 
     private void deleteCacheFileIfUnused(File file) {
