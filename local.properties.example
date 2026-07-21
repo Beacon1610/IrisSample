@@ -1,0 +1,11 @@
+# Copy this file to local.properties and set your Android SDK path.
+sdk.dir=/path/to/Android/Sdk
+
+# Direct SMTP is disabled by default because credentials embedded in an APK
+# can be extracted. Prefer a backend mail relay. The values below are only for
+# controlled local debug testing and are never enabled in release builds.
+direct.smtp.enabled=false
+brevo.smtp.login=
+brevo.smtp.key=
+brevo.sender.email=
+brevo.sender.name=Iris Sample System

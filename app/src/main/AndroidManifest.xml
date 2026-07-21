@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:testOnly="false">
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+<!--    khai bao GPS-->
+<!--    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />-->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_STORAGE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.UPDATE_DEVICE_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.READ_SYNC_STATS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.READ_OWNER_DATA" />
+    <uses-permission android:name="android.permission.WRITE_OWNER_DATA" />
+    <uses-permission android:name="com.id2mp.permissions.IRIS" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_app_logo"
+        android:label="@string/app_name"
+        android:requestLegacyExternalStorage="true"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+        <activity
+            android:name=".FaceRecognitionActivity"
+            android:exported="false"
+            android:label="@string/title_activity_face_recognition"
+            android:theme="@style/AppTheme" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <activity
+            android:name=".LoginActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <!-- Launcher intent -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep link intent - Mở app từ email -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <!-- Custom scheme: irissample://login -->
+                <data
+                    android:host="login"
+                    android:scheme="irissample" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".RegisterAdminActivity" />
+        <activity android:name=".AdminListActivity" />
+        <activity android:name=".AdminDetailActivity" />
+        <activity android:name=".ProfileActivity" />
+        <activity android:name=".SubjectListActivity" />
+        <activity android:name=".StudentListActivity" />
+        <activity android:name=".AddSubjectActivity" />
+        <activity android:name=".ImportCsvActivity" />
+        <activity android:name=".AddStudentActivity" />
+        <activity android:name=".ForgotPasswordActivity" />
+        <activity
+            android:name=".MockCheckinActivity"
+            android:label="Mock Checkin - DEMO Mode" /> <!-- AttendanceManagementActivity - Quản lý export CSV và gửi email báo cáo điểm danh -->
+        <activity
+            android:name=".AttendanceManagementActivity"
+            android:label="Quản lý điểm danh"
+            android:parentActivityName=".StudentListActivity" /> <!-- BackupRestoreActivity - Quản lý backup/restore database (chỉ Super Admin) -->
+        <activity
+            android:name=".BackupRestoreActivity"
+            android:label="Backup &amp; Restore Database" /> <!-- ResetPasswordActivity - Nhận deep link từ email reset password -->
+        <activity
+            android:name=".ResetPasswordActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <!-- Deep link intent - Reset password từ email -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <!-- Custom scheme: irissample://reset-password?email=xxx&token=xxx -->
+                <data
+                    android:host="reset-password"
+                    android:scheme="irissample" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".MainActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
+            android:name=".AdminFaceVerifyActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+    </application>
+
+</manifest>
