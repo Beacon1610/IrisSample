@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.DatePickerDialog;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
@@ -21,6 +22,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -40,6 +42,9 @@ import com.iritech.irissample.model.StudentAttendanceStats;
 import com.iritech.irissample.adapter.StudentAttendanceDetailAdapter;
 import com.iritech.irissample.model.export.AttendanceExportData;
 import com.iritech.irissample.model.export.ExportedReport;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -75,6 +80,18 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private static final int FILTER_ABSENT = 2;
     private static final int STATS_MODE_DAILY = 0;
     private static final int STATS_MODE_STUDENT = 1;
+    private static final long ATTENDANCE_CACHE_MAX_AGE_MS = 7L * 24L * 60L * 60L * 1000L;
+    private static final String PREFS_EXPORTED_REPORTS = "attendance_exported_reports";
+    private static final String PREF_KEY_REPORTS_PREFIX = "reports_";
+    private static final String PREF_KEY_SELECTED_REPORT_PREFIX = "selected_report_";
+    private static final String STATE_SELECTED_REPORT_PATH = "state_selected_report_path";
+    private static final String STATE_SELECTED_REPORT_TYPE = "state_selected_report_type";
+    private static final String JSON_REPORT_TYPE = "report_type";
+    private static final String JSON_SUBJECT_ID = "subject_id";
+    private static final String JSON_DISPLAY_NAME = "display_name";
+    private static final String JSON_CACHE_PATH = "cache_path";
+    private static final String JSON_FILE_SIZE = "file_size";
+    private static final String JSON_EXPORTED_AT = "exported_at";
 
     // UI Components - Tabs
     private Button btnTabExport, btnTabEmail, btnTabView;
@@ -126,6 +143,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
     private final List<ExportedReport> exportedReports = new ArrayList<>();
     private ExportedReport selectedEmailReport;
     private boolean emailSendingInProgress;
+    private File emailAttachmentInProgress;
     private byte[] pendingExportData;
     private ExportedReport.ReportType pendingExportReportType;
     private String pendingExportDisplayName;
@@ -162,9 +180,26 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         loadSubjectInfo();
         setupTabs();
         loadEmailRecipients();
+        restoreExportedReportsFromPreferences();
+        restoreSelectedReportFromState(savedInstanceState);
+        cleanupOldAttendanceCacheFiles();
+        updateSelectedReportUi();
 
         showTab(0);
         reloadCurrentStatistics();
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        persistExportedReports();
+
+        if (isValidReportFile(selectedEmailReport)) {
+            outState.putString(STATE_SELECTED_REPORT_PATH,
+                    selectedEmailReport.getCacheFile().getAbsolutePath());
+            outState.putString(STATE_SELECTED_REPORT_TYPE,
+                    selectedEmailReport.getReportType().name());
+        }
     }
 
     private void initViews() {
@@ -1028,7 +1063,8 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                 || cacheFile == null
                 || !cacheFile.exists()
                 || !cacheFile.isFile()
-                || cacheFile.length() <= 0) {
+                || cacheFile.length() <= 0
+                || !isFileInsideCacheDir(cacheFile)) {
             return;
         }
 
@@ -1062,11 +1098,168 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             deleteCacheFileIfUnused(oldFile);
         }
 
+        persistExportedReports();
         updateSelectedReportUi();
+    }
+
+    private void restoreExportedReportsFromPreferences() {
+        if (isBlank(currentSubjectId)) {
+            return;
+        }
+
+        exportedReports.clear();
+        selectedEmailReport = null;
+
+        SharedPreferences preferences = getExportedReportsPreferences();
+        String reportsJson = preferences.getString(getReportsPreferenceKey(), null);
+        String selectedReportPath = preferences.getString(getSelectedReportPreferenceKey(), null);
+        if (isBlank(reportsJson)) {
+            return;
+        }
+
+        try {
+            JSONArray reportsArray = new JSONArray(reportsJson);
+            for (int i = 0; i < reportsArray.length(); i++) {
+                ExportedReport report = parseExportedReport(reportsArray.optJSONObject(i));
+                if (report == null) {
+                    continue;
+                }
+
+                exportedReports.add(report);
+                if (!isBlank(selectedReportPath)
+                        && isSameFile(report.getCacheFile(), new File(selectedReportPath))) {
+                    selectedEmailReport = report;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            exportedReports.clear();
+            selectedEmailReport = null;
+        }
+
+        if (!isValidReportFile(selectedEmailReport)) {
+            selectedEmailReport = null;
+        }
+        persistExportedReports();
+    }
+
+    private void restoreSelectedReportFromState(Bundle savedInstanceState) {
+        if (savedInstanceState == null) {
+            return;
+        }
+
+        String selectedReportPath = savedInstanceState.getString(STATE_SELECTED_REPORT_PATH);
+        String selectedReportType = savedInstanceState.getString(STATE_SELECTED_REPORT_TYPE);
+        if (isBlank(selectedReportPath) || isBlank(selectedReportType)) {
+            return;
+        }
+
+        for (ExportedReport report : exportedReports) {
+            if (report != null
+                    && report.getReportType() != null
+                    && selectedReportType.equals(report.getReportType().name())
+                    && isSameFile(report.getCacheFile(), new File(selectedReportPath))
+                    && isValidReportFile(report)) {
+                selectedEmailReport = report;
+                persistExportedReports();
+                return;
+            }
+        }
+    }
+
+    private ExportedReport parseExportedReport(JSONObject object) {
+        if (object == null) {
+            return null;
+        }
+
+        try {
+            String reportTypeName = object.optString(JSON_REPORT_TYPE, null);
+            String subjectId = object.optString(JSON_SUBJECT_ID, null);
+            String cachePath = object.optString(JSON_CACHE_PATH, null);
+            if (isBlank(reportTypeName)
+                    || isBlank(subjectId)
+                    || isBlank(cachePath)
+                    || !String.valueOf(currentSubjectId).equals(subjectId)) {
+                return null;
+            }
+
+            ExportedReport.ReportType reportType =
+                    ExportedReport.ReportType.valueOf(reportTypeName);
+            File cacheFile = new File(cachePath);
+            if (!isFileInsideCacheDir(cacheFile)) {
+                return null;
+            }
+
+            String displayName = object.optString(JSON_DISPLAY_NAME, cacheFile.getName());
+            if (isBlank(displayName)) {
+                displayName = cacheFile.getName();
+            }
+
+            ExportedReport report = new ExportedReport(
+                    reportType,
+                    subjectId,
+                    displayName,
+                    cacheFile,
+                    object.optLong(JSON_FILE_SIZE, cacheFile.length()),
+                    object.optLong(JSON_EXPORTED_AT, cacheFile.lastModified())
+            );
+            return isValidReportFile(report) ? report : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void persistExportedReports() {
+        if (isBlank(currentSubjectId)) {
+            return;
+        }
+
+        JSONArray reportsArray = new JSONArray();
+        for (ExportedReport report : exportedReports) {
+            if (!isValidReportFile(report)) {
+                continue;
+            }
+
+            try {
+                JSONObject object = new JSONObject();
+                object.put(JSON_REPORT_TYPE, report.getReportType().name());
+                object.put(JSON_SUBJECT_ID, report.getSubjectId());
+                object.put(JSON_DISPLAY_NAME, report.getDisplayName());
+                object.put(JSON_CACHE_PATH, report.getCacheFile().getAbsolutePath());
+                object.put(JSON_FILE_SIZE, report.getCacheFile().length());
+                object.put(JSON_EXPORTED_AT, report.getExportedAt());
+                reportsArray.put(object);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        SharedPreferences.Editor editor = getExportedReportsPreferences().edit();
+        editor.putString(getReportsPreferenceKey(), reportsArray.toString());
+        if (isValidReportFile(selectedEmailReport)) {
+            editor.putString(getSelectedReportPreferenceKey(),
+                    selectedEmailReport.getCacheFile().getAbsolutePath());
+        } else {
+            editor.remove(getSelectedReportPreferenceKey());
+        }
+        editor.commit();
+    }
+
+    private SharedPreferences getExportedReportsPreferences() {
+        return getSharedPreferences(PREFS_EXPORTED_REPORTS, MODE_PRIVATE);
+    }
+
+    private String getReportsPreferenceKey() {
+        return PREF_KEY_REPORTS_PREFIX + currentSubjectId;
+    }
+
+    private String getSelectedReportPreferenceKey() {
+        return PREF_KEY_SELECTED_REPORT_PREFIX + currentSubjectId;
     }
 
     private List<ExportedReport> getReportsForCurrentSubject() {
         List<ExportedReport> reportsForSubject = new ArrayList<>();
+        boolean removedInvalidReport = false;
 
         for (int i = exportedReports.size() - 1; i >= 0; i--) {
             ExportedReport report = exportedReports.get(i);
@@ -1083,27 +1276,34 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                 if (report == selectedEmailReport) {
                     selectedEmailReport = null;
                 }
+                removedInvalidReport = true;
             }
         }
 
         reportsForSubject.sort((left, right) ->
                 Long.compare(right.getExportedAt(), left.getExportedAt()));
+
+        if (removedInvalidReport) {
+            persistExportedReports();
+        }
         return reportsForSubject;
     }
 
     private boolean isValidReportFile(ExportedReport report) {
+        File cacheFile = report == null ? null : report.getCacheFile();
         if (report == null
                 || report.getReportType() == null
                 || currentSubjectId == null
                 || !String.valueOf(currentSubjectId).equals(report.getSubjectId())
-                || report.getCacheFile() == null
-                || !report.getCacheFile().exists()
-                || !report.getCacheFile().isFile()
-                || report.getCacheFile().length() <= 0) {
+                || cacheFile == null
+                || !cacheFile.exists()
+                || !cacheFile.isFile()
+                || cacheFile.length() <= 0
+                || !isFileInsideCacheDir(cacheFile)) {
             return false;
         }
 
-        String fileName = report.getCacheFile().getName().toLowerCase(Locale.US);
+        String fileName = cacheFile.getName().toLowerCase(Locale.US);
         switch (report.getReportType()) {
             case CSV_DETAIL:
             case CSV_SUMMARY:
@@ -1129,8 +1329,14 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         }
 
         if (selectedEmailReport == null) {
+            List<ExportedReport> reportsForSubject = getReportsForCurrentSubject();
             textSelectedReportType.setText("Chưa chọn báo cáo");
-            textSelectedReportFileName.setText("Bạn chưa xuất báo cáo nào cho môn học này");
+            if (reportsForSubject.isEmpty()) {
+                textSelectedReportFileName.setText("Bạn chưa xuất báo cáo nào cho môn học này");
+            } else {
+                textSelectedReportFileName.setText(
+                        "Có " + reportsForSubject.size() + " báo cáo đã xuất. Nhấn Chọn báo cáo.");
+            }
             textSelectedReportMeta.setText("");
             btnChooseReport.setText("Chọn báo cáo");
             return;
@@ -1149,7 +1355,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         if (reportsForSubject.isEmpty()) {
             new AlertDialog.Builder(this)
                     .setTitle("Chưa có báo cáo")
-                    .setMessage("Bạn chưa xuất báo cáo nào cho môn học này.\nVui lòng xuất ít nhất một báo cáo trước khi gửi email.")
+                    .setMessage("Bạn chưa xuất báo cáo nào. Vui lòng xuất ít nhất một báo cáo trước khi gửi email.")
                     .setPositiveButton("Đến phần xuất", (dialog, which) -> showTab(1))
                     .setNegativeButton("Đóng", null)
                     .show();
@@ -1179,6 +1385,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                 .setTitle("Chọn báo cáo")
                 .setSingleChoiceItems(items, selectedIndex, (dialog, which) -> {
                     selectedEmailReport = reportsForSubject.get(which);
+                    persistExportedReports();
                     updateSelectedReportUi();
                     dialog.dismiss();
                 })
@@ -1244,17 +1451,73 @@ public class AttendanceManagementActivity extends AppCompatActivity {
         return escaped.toString();
     }
 
-    private void deleteCacheFileIfUnused(File file) {
-        if (file == null || isCacheFileUsed(file)) {
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private void cleanupOldAttendanceCacheFiles() {
+        File[] cacheFiles = getCacheDir().listFiles();
+        if (cacheFiles == null) {
             return;
+        }
+
+        long cutoffTime = System.currentTimeMillis() - ATTENDANCE_CACHE_MAX_AGE_MS;
+        for (File cacheFile : cacheFiles) {
+            if (!isAttendanceReportCacheFile(cacheFile)
+                    || cacheFile.lastModified() >= cutoffTime
+                    || isCacheFileUsed(cacheFile)
+                    || isSameFile(cacheFile, emailAttachmentInProgress)) {
+                continue;
+            }
+
+            deleteCacheFileIfUnused(cacheFile);
+        }
+    }
+
+    private boolean isAttendanceReportCacheFile(File file) {
+        if (file == null
+                || !file.exists()
+                || !file.isFile()
+                || !isFileInsideCacheDir(file)) {
+            return false;
+        }
+
+        String fileName = file.getName().toLowerCase(Locale.US);
+        return fileName.startsWith("attendance_")
+                && (fileName.endsWith(".csv") || fileName.endsWith(".xlsx"));
+    }
+
+    private boolean isFileInsideCacheDir(File file) {
+        if (file == null) {
+            return false;
         }
 
         try {
             File cacheDir = getCacheDir().getCanonicalFile();
+            File target = file.getCanonicalFile();
+            while (target != null) {
+                if (cacheDir.equals(target)) {
+                    return true;
+                }
+                target = target.getParentFile();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    private void deleteCacheFileIfUnused(File file) {
+        if (file == null
+                || isCacheFileUsed(file)
+                || isSameFile(file, emailAttachmentInProgress)
+                || !isFileInsideCacheDir(file)) {
+            return;
+        }
+
+        try {
             File targetFile = file.getCanonicalFile();
-            if (targetFile.getParentFile() != null
-                    && cacheDir.equals(targetFile.getParentFile())
-                    && targetFile.exists()
+            if (targetFile.exists()
                     && targetFile.isFile()) {
                 targetFile.delete();
             }
@@ -1541,6 +1804,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                     Toast.LENGTH_LONG).show();
             selectedEmailReport = null;
             updateSelectedReportUi();
+            persistExportedReports();
             showReportSelectionDialog();
             return;
         }
@@ -1551,6 +1815,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                     Toast.LENGTH_LONG).show();
             selectedEmailReport = null;
             updateSelectedReportUi();
+            persistExportedReports();
             return;
         }
 
@@ -1579,6 +1844,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
             if (report == selectedEmailReport) {
                 selectedEmailReport = null;
                 updateSelectedReportUi();
+                persistExportedReports();
             }
             return;
         }
@@ -1605,6 +1871,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                 .create();
         progressDialog.show();
         emailSendingInProgress = true;
+        emailAttachmentInProgress = attachmentFile;
         updateSendEmailButtonEnabled();
 
         EmailService.sendAttendanceReportEmail(recipients, subject, htmlBody,
@@ -1615,6 +1882,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             progressDialog.dismiss();
                             emailSendingInProgress = false;
+                            emailAttachmentInProgress = null;
                             updateSendEmailButtonEnabled();
                             Toast.makeText(AttendanceManagementActivity.this,
                                     "Đã gửi email thành công đến " + recipients.length + " người nhận",
@@ -1627,6 +1895,7 @@ public class AttendanceManagementActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             progressDialog.dismiss();
                             emailSendingInProgress = false;
+                            emailAttachmentInProgress = null;
                             updateSendEmailButtonEnabled();
                             new AlertDialog.Builder(AttendanceManagementActivity.this)
                                     .setTitle("Lỗi gửi email")
